@@ -1,0 +1,20 @@
+application:
+  name: PressStartAI
+  version: 0.1.0
+  debug: true
+
+processing:
+  device: AUTO
+  output_resolution: "1080x1920"
+  temp_directory: temp
+  output_directory: output
+
+video:
+  target_fps: 30
+  codec: libx264
+  bitrate: 8M
+
+ai:
+  whisper_model: medium
+  vision_model: qwen2.5-vl
+  llm_model: gemma3

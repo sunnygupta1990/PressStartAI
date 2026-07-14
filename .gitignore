@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environment
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Output
+output/
+temp/
+
+# AI Models
+models/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Git
+*.orig
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+
+# Build
+build/
+dist/
+*.egg-info/

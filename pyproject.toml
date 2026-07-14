@@ -1,0 +1,18 @@
+[project]
+name = "pressstartai"
+version = "0.1.0"
+description = "Local AI powered gaming video to YouTube Shorts generator"
+requires-python = ">=3.12,<3.13"
+
+authors = [
+    {name = "Sunny Gupta"}
+]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
