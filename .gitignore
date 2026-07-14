@@ -7,40 +7,40 @@ __pycache__/
 # Virtual Environment
 .venv/
 
-# IDE
-.vscode/
-.idea/
-
 # Logs
 logs/
 *.log
 
 # Output
 output/
+
+# Temporary files
 temp/
 
 # AI Models
 models/
 
-# OS
-Thumbs.db
-Desktop.ini
+# VS Code
+.vscode/
 
-# Git
-*.orig
-
-# Testing
+# Pytest
 .pytest_cache/
+
+# Coverage
 .coverage
 htmlcov/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# Environment
-.env
-
 # Build
-build/
 dist/
+build/
+*.spec
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Diagnostic files
+opencv_build.txt
+
+# Python cache
 *.egg-info/
