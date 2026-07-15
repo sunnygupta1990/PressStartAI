@@ -11,7 +11,7 @@ from src.services.pipeline_run_path_builder import PipelineRunPathBuilder
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the PressStartAI highlight pipeline "
+            "Run the PressStartAI highlight and YouTube Short pipeline "
             "for a gaming video."
         )
     )
@@ -34,7 +34,7 @@ def parse_arguments() -> argparse.Namespace:
         "--output-folder",
         default=None,
         help=(
-            "Optional folder used for final approved highlights. "
+            "Optional folder used for final pipeline outputs. "
             "A unique run folder is created by default."
         ),
     )
@@ -156,6 +156,11 @@ def main() -> None:
     )
 
     print(
+        f"Short Packages    : "
+        f"{result.short_package_count}"
+    )
+
+    print(
         f"Pipeline Time     : "
         f"{result.total_duration_seconds:.2f}s"
     )
@@ -165,32 +170,48 @@ def main() -> None:
         f"{output_folder}"
     )
 
-    for highlight, exported_file in zip(
-        result.final_highlights,
-        result.exported_files,
-        strict=True,
-    ):
+    for package in result.short_packages:
         print()
         print("-" * 60)
         print(
             f"Rank             : "
-            f"{highlight.rank}"
+            f"{package.rank}"
         )
         print(
-            f"File             : "
-            f"{exported_file}"
+            f"Final Short      : "
+            f"{package.final_video_file}"
+        )
+        print(
+            f"Captions         : "
+            f"{package.subtitle_file}"
         )
         print(
             f"Category         : "
-            f"{highlight.category}"
+            f"{package.category}"
         )
         print(
             f"Confidence       : "
-            f"{highlight.confidence:.4f}"
+            f"{package.confidence:.4f}"
         )
         print(
-            f"Event Summary    : "
-            f"{highlight.event_summary}"
+            f"Hook             : "
+            f"{package.metadata.hook}"
+        )
+        print(
+            f"Title            : "
+            f"{package.metadata.title}"
+        )
+        print(
+            f"Description      : "
+            f"{package.metadata.description}"
+        )
+        print(
+            f"Hashtags         : "
+            f"{' '.join(package.metadata.hashtags)}"
+        )
+        print(
+            f"Thumbnail Prompt : "
+            f"{package.metadata.thumbnail_prompt}"
         )
 
     print()

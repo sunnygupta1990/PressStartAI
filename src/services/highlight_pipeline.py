@@ -23,6 +23,7 @@ from src.services.pipeline_progress_reporter import PipelineProgressReporter
 from src.services.pipeline_stage_runner import PipelineStageRunner
 from src.services.scene_detector import SceneDetector
 from src.services.scene_transcript_mapper import SceneTranscriptMapper
+from src.services.short_package_batch_builder import ShortPackageBatchBuilder
 from src.services.speech_chunk_extractor import SpeechChunkExtractor
 from src.services.video_loader import VideoLoader
 from src.services.visual_highlight_reasoner import VisualHighlightReasoner
@@ -30,7 +31,7 @@ from src.services.voice_activity_detector import VoiceActivityDetector
 
 
 class HighlightPipeline:
-    """Run the complete PressStartAI highlight analysis pipeline."""
+    """Run the complete PressStartAI highlight and Short pipeline."""
 
     def run(
         self,
@@ -51,17 +52,19 @@ class HighlightPipeline:
 
         progress = PipelineProgressReporter(
             callback=progress_callback,
-            total_steps=19,
+            total_steps=20,
         )
 
         stage_runner = PipelineStageRunner()
 
         working_path = Path(working_folder)
+        output_path = Path(output_folder)
 
         audio_file = working_path / "audio.wav"
         speech_folder = working_path / "speech_chunks"
         highlight_folder = working_path / "highlights"
         frame_folder = working_path / "highlight_frames"
+        short_package_folder = output_path / "shorts"
 
         working_path.mkdir(
             parents=True,
@@ -437,7 +440,24 @@ class HighlightPipeline:
             stage="Exporting final highlight package",
             action=lambda: exporter.export(
                 highlights=final_highlights,
-                output_folder=output_folder,
+                output_folder=str(
+                    output_path / "highlights"
+                ),
+            ),
+        )
+
+        progress.report(
+            20,
+            "Building final YouTube Short packages",
+        )
+
+        short_package_builder = ShortPackageBatchBuilder()
+
+        short_packages = stage_runner.run(
+            stage="Building final YouTube Short packages",
+            action=lambda: short_package_builder.build(
+                highlights=final_highlights,
+                output_folder=str(short_package_folder),
             ),
         )
 
@@ -446,5 +466,6 @@ class HighlightPipeline:
             video_duration_seconds=video_info.duration_seconds,
             final_highlights=final_highlights,
             exported_files=exported_files,
+            short_packages=short_packages,
             stage_timings=list(stage_runner.timings),
         )
