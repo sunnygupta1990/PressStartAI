@@ -7,6 +7,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.services.asr.transcription_pipeline import TranscriptionPipeline
 from src.services.audio_analyzer import AudioAnalyzer
 from src.services.audio_extractor import AudioExtractor
+from src.services.final_highlight_combiner import FinalHighlightCombiner
+from src.services.final_highlight_exporter import FinalHighlightExporter
 from src.services.final_highlight_selector import FinalHighlightSelector
 from src.services.highlight_analysis_combiner import HighlightAnalysisCombiner
 from src.services.highlight_clip_generator import HighlightClipGenerator
@@ -34,6 +36,7 @@ AUDIO_FILE = "temp/audio.wav"
 SPEECH_FOLDER = "temp/speech_chunks"
 HIGHLIGHT_FOLDER = "temp/final_highlights"
 FRAME_FOLDER = "temp/final_highlight_frames"
+OUTPUT_FOLDER = "output/highlights"
 
 
 def main() -> None:
@@ -42,13 +45,13 @@ def main() -> None:
     print("=" * 60)
 
     print()
-    print("[1/17] Loading video...")
+    print("[1/19] Loading video...")
 
     video_loader = VideoLoader()
     video_info = video_loader.load(VIDEO_FILE)
 
     print()
-    print("[2/17] Extracting audio...")
+    print("[2/19] Extracting audio...")
 
     audio_extractor = AudioExtractor()
     audio_extractor.extract(
@@ -57,13 +60,13 @@ def main() -> None:
     )
 
     print()
-    print("[3/17] Detecting speech...")
+    print("[3/19] Detecting speech...")
 
     vad = VoiceActivityDetector()
     speech_segments = vad.detect(AUDIO_FILE)
 
     print()
-    print("[4/17] Creating speech chunks...")
+    print("[4/19] Creating speech chunks...")
 
     speech_chunk_extractor = SpeechChunkExtractor()
     speech_chunks = speech_chunk_extractor.extract(
@@ -73,7 +76,7 @@ def main() -> None:
     )
 
     print()
-    print("[5/17] Transcribing commentary...")
+    print("[5/19] Transcribing commentary...")
 
     transcription_pipeline = TranscriptionPipeline()
     transcript_segments = transcription_pipeline.transcribe(
@@ -81,13 +84,13 @@ def main() -> None:
     )
 
     print()
-    print("[6/17] Detecting scenes...")
+    print("[6/19] Detecting scenes...")
 
     scene_detector = SceneDetector()
     scenes = scene_detector.detect(VIDEO_FILE)
 
     print()
-    print("[7/17] Mapping commentary to scenes...")
+    print("[7/19] Mapping commentary to scenes...")
 
     scene_mapper = SceneTranscriptMapper()
     scene_analyses = scene_mapper.map(
@@ -96,7 +99,7 @@ def main() -> None:
     )
 
     print()
-    print("[8/17] Analyzing motion...")
+    print("[8/19] Analyzing motion...")
 
     motion_analyzer = MotionAnalyzer()
     motion_features = motion_analyzer.analyze(
@@ -105,7 +108,7 @@ def main() -> None:
     )
 
     print()
-    print("[9/17] Analyzing audio intensity...")
+    print("[9/19] Analyzing audio intensity...")
 
     audio_analyzer = AudioAnalyzer()
     audio_features = audio_analyzer.analyze(
@@ -114,7 +117,7 @@ def main() -> None:
     )
 
     print()
-    print("[10/17] Scoring highlight scenes...")
+    print("[10/19] Scoring highlight scenes...")
 
     feature_extractor = HighlightFeatureExtractor()
     highlight_features = feature_extractor.extract(
@@ -129,7 +132,7 @@ def main() -> None:
     )
 
     print()
-    print("[11/17] Selecting highlight candidates...")
+    print("[11/19] Selecting highlight candidates...")
 
     selector = HighlightSelector()
     candidates = selector.select(
@@ -143,7 +146,7 @@ def main() -> None:
     )
 
     print()
-    print("[12/17] Generating highlight clips...")
+    print("[12/19] Generating highlight clips...")
 
     clip_generator = HighlightClipGenerator()
     generated_highlights = clip_generator.generate(
@@ -153,7 +156,7 @@ def main() -> None:
     )
 
     print()
-    print("[13/17] Running commentary AI reasoning...")
+    print("[13/19] Running commentary AI reasoning...")
 
     commentary_reasoner = HighlightReasoner()
     commentary_results = commentary_reasoner.reason(
@@ -167,7 +170,7 @@ def main() -> None:
     )
 
     print()
-    print("[14/17] Extracting representative frames...")
+    print("[14/19] Extracting representative frames...")
 
     frame_extractor = HighlightFrameExtractor(
         frame_count=5,
@@ -186,7 +189,7 @@ def main() -> None:
         ] = frame_files
 
     print()
-    print("[15/17] Running visual AI reasoning...")
+    print("[15/19] Running visual AI reasoning...")
 
     visual_reasoner = VisualHighlightReasoner()
 
@@ -208,7 +211,7 @@ def main() -> None:
         ] = visual_result
 
     print()
-    print("[16/17] Fusing multimodal AI decisions...")
+    print("[16/19] Fusing multimodal AI decisions...")
 
     fusion_reasoner = HighlightFusionReasoner()
 
@@ -232,52 +235,69 @@ def main() -> None:
         )
 
     print()
-    print("[17/17] Selecting final approved highlights...")
+    print("[17/19] Selecting final approved highlights...")
 
     final_selector = FinalHighlightSelector(
         minimum_confidence=0.70,
     )
 
-    final_highlights = final_selector.select(
+    approved_results = final_selector.select(
         fusion_results
     )
 
     print()
+    print("[18/19] Linking approved decisions to clips...")
+
+    final_combiner = FinalHighlightCombiner()
+
+    final_highlights = final_combiner.combine(
+        highlights=generated_highlights,
+        approved_results=approved_results,
+    )
+
+    print()
+    print("[19/19] Exporting final highlight package...")
+
+    exporter = FinalHighlightExporter()
+
+    exported_files = exporter.export(
+        highlights=final_highlights,
+        output_folder=OUTPUT_FOLDER,
+    )
+
+    print()
     print("=" * 60)
-    print("FINAL APPROVED HIGHLIGHTS")
+    print("FINAL EXPORTED HIGHLIGHTS")
     print("=" * 60)
 
     print(
-        f"Approved Highlights: "
-        f"{len(final_highlights)}"
+        f"Exported Highlights: "
+        f"{len(exported_files)}"
     )
 
-    for result in final_highlights:
+    for highlight, exported_file in zip(
+        final_highlights,
+        exported_files,
+        strict=True,
+    ):
         print()
         print("-" * 60)
-        print(f"Rank             : {result.rank}")
+        print(f"Rank             : {highlight.rank}")
+        print(f"File             : {exported_file}")
+        print(f"Category         : {highlight.category}")
         print(
-            f"Keep Highlight   : "
-            f"{result.keep_highlight}"
+            f"Confidence       : "
+            f"{highlight.confidence:.4f}"
         )
-        print(f"Category         : {result.category}")
         print(
             f"Event Summary    : "
-            f"{result.event_summary}"
+            f"{highlight.event_summary}"
         )
         print(
-            f"Action Level     : "
-            f"{result.action_level}"
+            f"Source Timeline  : "
+            f"{highlight.start_seconds:.2f}s "
+            f"-> {highlight.end_seconds:.2f}s"
         )
-        print(
-            f"Danger Level     : "
-            f"{result.danger_level}"
-        )
-        print(
-            f"Final Confidence : "
-            f"{result.final_confidence:.4f}"
-        )
-        print(f"Reason           : {result.reason}")
 
 
 if __name__ == "__main__":
