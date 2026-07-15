@@ -7,6 +7,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.services.asr.transcription_pipeline import TranscriptionPipeline
 from src.services.audio_analyzer import AudioAnalyzer
 from src.services.audio_extractor import AudioExtractor
+from src.services.final_highlight_selector import FinalHighlightSelector
 from src.services.highlight_analysis_combiner import HighlightAnalysisCombiner
 from src.services.highlight_clip_generator import HighlightClipGenerator
 from src.services.highlight_feature_extractor import HighlightFeatureExtractor
@@ -41,13 +42,13 @@ def main() -> None:
     print("=" * 60)
 
     print()
-    print("[1/16] Loading video...")
+    print("[1/17] Loading video...")
 
     video_loader = VideoLoader()
     video_info = video_loader.load(VIDEO_FILE)
 
     print()
-    print("[2/16] Extracting audio...")
+    print("[2/17] Extracting audio...")
 
     audio_extractor = AudioExtractor()
     audio_extractor.extract(
@@ -56,13 +57,13 @@ def main() -> None:
     )
 
     print()
-    print("[3/16] Detecting speech...")
+    print("[3/17] Detecting speech...")
 
     vad = VoiceActivityDetector()
     speech_segments = vad.detect(AUDIO_FILE)
 
     print()
-    print("[4/16] Creating speech chunks...")
+    print("[4/17] Creating speech chunks...")
 
     speech_chunk_extractor = SpeechChunkExtractor()
     speech_chunks = speech_chunk_extractor.extract(
@@ -72,7 +73,7 @@ def main() -> None:
     )
 
     print()
-    print("[5/16] Transcribing commentary...")
+    print("[5/17] Transcribing commentary...")
 
     transcription_pipeline = TranscriptionPipeline()
     transcript_segments = transcription_pipeline.transcribe(
@@ -80,13 +81,13 @@ def main() -> None:
     )
 
     print()
-    print("[6/16] Detecting scenes...")
+    print("[6/17] Detecting scenes...")
 
     scene_detector = SceneDetector()
     scenes = scene_detector.detect(VIDEO_FILE)
 
     print()
-    print("[7/16] Mapping commentary to scenes...")
+    print("[7/17] Mapping commentary to scenes...")
 
     scene_mapper = SceneTranscriptMapper()
     scene_analyses = scene_mapper.map(
@@ -95,7 +96,7 @@ def main() -> None:
     )
 
     print()
-    print("[8/16] Analyzing motion...")
+    print("[8/17] Analyzing motion...")
 
     motion_analyzer = MotionAnalyzer()
     motion_features = motion_analyzer.analyze(
@@ -104,7 +105,7 @@ def main() -> None:
     )
 
     print()
-    print("[9/16] Analyzing audio intensity...")
+    print("[9/17] Analyzing audio intensity...")
 
     audio_analyzer = AudioAnalyzer()
     audio_features = audio_analyzer.analyze(
@@ -113,7 +114,7 @@ def main() -> None:
     )
 
     print()
-    print("[10/16] Scoring highlight scenes...")
+    print("[10/17] Scoring highlight scenes...")
 
     feature_extractor = HighlightFeatureExtractor()
     highlight_features = feature_extractor.extract(
@@ -128,7 +129,7 @@ def main() -> None:
     )
 
     print()
-    print("[11/16] Selecting highlight candidates...")
+    print("[11/17] Selecting highlight candidates...")
 
     selector = HighlightSelector()
     candidates = selector.select(
@@ -137,10 +138,12 @@ def main() -> None:
     )
 
     overlap_resolver = HighlightOverlapResolver()
-    candidates = overlap_resolver.resolve(candidates)
+    candidates = overlap_resolver.resolve(
+        candidates
+    )
 
     print()
-    print("[12/16] Generating highlight clips...")
+    print("[12/17] Generating highlight clips...")
 
     clip_generator = HighlightClipGenerator()
     generated_highlights = clip_generator.generate(
@@ -150,7 +153,7 @@ def main() -> None:
     )
 
     print()
-    print("[13/16] Running commentary AI reasoning...")
+    print("[13/17] Running commentary AI reasoning...")
 
     commentary_reasoner = HighlightReasoner()
     commentary_results = commentary_reasoner.reason(
@@ -164,7 +167,7 @@ def main() -> None:
     )
 
     print()
-    print("[14/16] Extracting representative frames...")
+    print("[14/17] Extracting representative frames...")
 
     frame_extractor = HighlightFrameExtractor(
         frame_count=5,
@@ -178,10 +181,12 @@ def main() -> None:
             output_folder=FRAME_FOLDER,
         )
 
-        highlight_frames[highlight.rank] = frame_files
+        highlight_frames[
+            highlight.rank
+        ] = frame_files
 
     print()
-    print("[15/16] Running visual AI reasoning...")
+    print("[15/17] Running visual AI reasoning...")
 
     visual_reasoner = VisualHighlightReasoner()
 
@@ -198,10 +203,12 @@ def main() -> None:
             frame_files=frame_files,
         )
 
-        visual_results[highlight.rank] = visual_result
+        visual_results[
+            highlight.rank
+        ] = visual_result
 
     print()
-    print("[16/16] Fusing multimodal AI decisions...")
+    print("[16/17] Fusing multimodal AI decisions...")
 
     fusion_reasoner = HighlightFusionReasoner()
 
@@ -225,49 +232,52 @@ def main() -> None:
         )
 
     print()
+    print("[17/17] Selecting final approved highlights...")
+
+    final_selector = FinalHighlightSelector(
+        minimum_confidence=0.70,
+    )
+
+    final_highlights = final_selector.select(
+        fusion_results
+    )
+
+    print()
     print("=" * 60)
-    print("FINAL MULTIMODAL HIGHLIGHT DECISIONS")
+    print("FINAL APPROVED HIGHLIGHTS")
     print("=" * 60)
 
     print(
-        f"Final Decisions: "
-        f"{len(fusion_results)}"
+        f"Approved Highlights: "
+        f"{len(final_highlights)}"
     )
 
-    for result in fusion_results:
+    for result in final_highlights:
         print()
         print("-" * 60)
-        print(f"Rank               : {result.rank}")
+        print(f"Rank             : {result.rank}")
         print(
-            f"Keep Highlight     : "
+            f"Keep Highlight   : "
             f"{result.keep_highlight}"
         )
-        print(f"Category           : {result.category}")
+        print(f"Category         : {result.category}")
         print(
-            f"Event Summary      : "
+            f"Event Summary    : "
             f"{result.event_summary}"
         )
         print(
-            f"Commentary Category: "
-            f"{result.commentary_category}"
-        )
-        print(
-            f"Visual Event       : "
-            f"{result.visual_event}"
-        )
-        print(
-            f"Action Level       : "
+            f"Action Level     : "
             f"{result.action_level}"
         )
         print(
-            f"Danger Level       : "
+            f"Danger Level     : "
             f"{result.danger_level}"
         )
         print(
-            f"Final Confidence   : "
+            f"Final Confidence : "
             f"{result.final_confidence:.4f}"
         )
-        print(f"Reason             : {result.reason}")
+        print(f"Reason           : {result.reason}")
 
 
 if __name__ == "__main__":
