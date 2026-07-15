@@ -20,6 +20,7 @@ from src.services.highlight_scorer import HighlightScorer
 from src.services.highlight_selector import HighlightSelector
 from src.services.motion_analyzer import MotionAnalyzer
 from src.services.pipeline_progress_reporter import PipelineProgressReporter
+from src.services.pipeline_stage_runner import PipelineStageRunner
 from src.services.scene_detector import SceneDetector
 from src.services.scene_transcript_mapper import SceneTranscriptMapper
 from src.services.speech_chunk_extractor import SpeechChunkExtractor
@@ -53,6 +54,8 @@ class HighlightPipeline:
             total_steps=19,
         )
 
+        stage_runner = PipelineStageRunner()
+
         working_path = Path(working_folder)
 
         audio_file = working_path / "audio.wav"
@@ -71,8 +74,12 @@ class HighlightPipeline:
         )
 
         video_loader = VideoLoader()
-        video_info = video_loader.load(
-            str(video_path)
+
+        video_info = stage_runner.run(
+            stage="Loading video",
+            action=lambda: video_loader.load(
+                str(video_path)
+            ),
         )
 
         progress.report(
@@ -81,9 +88,13 @@ class HighlightPipeline:
         )
 
         audio_extractor = AudioExtractor()
-        audio_extractor.extract(
-            input_video=str(video_path),
-            output_audio=str(audio_file),
+
+        stage_runner.run(
+            stage="Extracting audio",
+            action=lambda: audio_extractor.extract(
+                input_video=str(video_path),
+                output_audio=str(audio_file),
+            ),
         )
 
         progress.report(
@@ -92,8 +103,12 @@ class HighlightPipeline:
         )
 
         vad = VoiceActivityDetector()
-        speech_segments = vad.detect(
-            str(audio_file)
+
+        speech_segments = stage_runner.run(
+            stage="Detecting speech",
+            action=lambda: vad.detect(
+                str(audio_file)
+            ),
         )
 
         progress.report(
@@ -102,10 +117,14 @@ class HighlightPipeline:
         )
 
         speech_chunk_extractor = SpeechChunkExtractor()
-        speech_chunks = speech_chunk_extractor.extract(
-            input_audio=str(audio_file),
-            speech_segments=speech_segments,
-            output_folder=str(speech_folder),
+
+        speech_chunks = stage_runner.run(
+            stage="Creating speech chunks",
+            action=lambda: speech_chunk_extractor.extract(
+                input_audio=str(audio_file),
+                speech_segments=speech_segments,
+                output_folder=str(speech_folder),
+            ),
         )
 
         progress.report(
@@ -114,8 +133,12 @@ class HighlightPipeline:
         )
 
         transcription_pipeline = TranscriptionPipeline()
-        transcript_segments = transcription_pipeline.transcribe(
-            speech_chunks
+
+        transcript_segments = stage_runner.run(
+            stage="Transcribing commentary",
+            action=lambda: transcription_pipeline.transcribe(
+                speech_chunks
+            ),
         )
 
         progress.report(
@@ -124,8 +147,12 @@ class HighlightPipeline:
         )
 
         scene_detector = SceneDetector()
-        scenes = scene_detector.detect(
-            str(video_path)
+
+        scenes = stage_runner.run(
+            stage="Detecting scenes",
+            action=lambda: scene_detector.detect(
+                str(video_path)
+            ),
         )
 
         progress.report(
@@ -134,9 +161,13 @@ class HighlightPipeline:
         )
 
         scene_mapper = SceneTranscriptMapper()
-        scene_analyses = scene_mapper.map(
-            scenes=scenes,
-            transcript_segments=transcript_segments,
+
+        scene_analyses = stage_runner.run(
+            stage="Mapping commentary to scenes",
+            action=lambda: scene_mapper.map(
+                scenes=scenes,
+                transcript_segments=transcript_segments,
+            ),
         )
 
         progress.report(
@@ -145,9 +176,13 @@ class HighlightPipeline:
         )
 
         motion_analyzer = MotionAnalyzer()
-        motion_features = motion_analyzer.analyze(
-            video_file=str(video_path),
-            scenes=scenes,
+
+        motion_features = stage_runner.run(
+            stage="Analyzing motion",
+            action=lambda: motion_analyzer.analyze(
+                video_file=str(video_path),
+                scenes=scenes,
+            ),
         )
 
         progress.report(
@@ -156,9 +191,13 @@ class HighlightPipeline:
         )
 
         audio_analyzer = AudioAnalyzer()
-        audio_features = audio_analyzer.analyze(
-            audio_file=str(audio_file),
-            scenes=scenes,
+
+        audio_features = stage_runner.run(
+            stage="Analyzing audio intensity",
+            action=lambda: audio_analyzer.analyze(
+                audio_file=str(audio_file),
+                scenes=scenes,
+            ),
         )
 
         progress.report(
@@ -167,15 +206,23 @@ class HighlightPipeline:
         )
 
         feature_extractor = HighlightFeatureExtractor()
-        highlight_features = feature_extractor.extract(
-            scene_analyses=scene_analyses,
-            motion_features=motion_features,
-            audio_features=audio_features,
+
+        highlight_features = stage_runner.run(
+            stage="Extracting highlight features",
+            action=lambda: feature_extractor.extract(
+                scene_analyses=scene_analyses,
+                motion_features=motion_features,
+                audio_features=audio_features,
+            ),
         )
 
         scorer = HighlightScorer()
-        highlight_scores = scorer.score(
-            highlight_features
+
+        highlight_scores = stage_runner.run(
+            stage="Scoring highlight scenes",
+            action=lambda: scorer.score(
+                highlight_features
+            ),
         )
 
         progress.report(
@@ -184,14 +231,22 @@ class HighlightPipeline:
         )
 
         selector = HighlightSelector()
-        candidates = selector.select(
-            scores=highlight_scores,
-            video_duration_seconds=video_info.duration_seconds,
+
+        candidates = stage_runner.run(
+            stage="Selecting highlight candidates",
+            action=lambda: selector.select(
+                scores=highlight_scores,
+                video_duration_seconds=video_info.duration_seconds,
+            ),
         )
 
         overlap_resolver = HighlightOverlapResolver()
-        candidates = overlap_resolver.resolve(
-            candidates
+
+        candidates = stage_runner.run(
+            stage="Resolving highlight overlaps",
+            action=lambda: overlap_resolver.resolve(
+                candidates
+            ),
         )
 
         progress.report(
@@ -200,10 +255,14 @@ class HighlightPipeline:
         )
 
         clip_generator = HighlightClipGenerator()
-        generated_highlights = clip_generator.generate(
-            video_file=str(video_path),
-            candidates=candidates,
-            output_folder=str(highlight_folder),
+
+        generated_highlights = stage_runner.run(
+            stage="Generating highlight clips",
+            action=lambda: clip_generator.generate(
+                video_file=str(video_path),
+                candidates=candidates,
+                output_folder=str(highlight_folder),
+            ),
         )
 
         progress.report(
@@ -212,14 +271,22 @@ class HighlightPipeline:
         )
 
         commentary_reasoner = HighlightReasoner()
-        commentary_results = commentary_reasoner.reason(
-            generated_highlights
+
+        commentary_results = stage_runner.run(
+            stage="Running commentary AI reasoning",
+            action=lambda: commentary_reasoner.reason(
+                generated_highlights
+            ),
         )
 
         analysis_combiner = HighlightAnalysisCombiner()
-        analyzed_highlights = analysis_combiner.combine(
-            highlights=generated_highlights,
-            reasoning_results=commentary_results,
+
+        analyzed_highlights = stage_runner.run(
+            stage="Combining commentary analysis",
+            action=lambda: analysis_combiner.combine(
+                highlights=generated_highlights,
+                reasoning_results=commentary_results,
+            ),
         )
 
         progress.report(
@@ -234,13 +301,21 @@ class HighlightPipeline:
         highlight_frames: dict[int, list[str]] = {}
 
         for highlight in generated_highlights:
-            frame_files = frame_extractor.extract(
-                highlight=highlight,
-                output_folder=str(frame_folder),
+            current_highlight = highlight
+
+            frame_files = stage_runner.run(
+                stage=(
+                    "Extracting representative frames "
+                    f"for rank {current_highlight.rank}"
+                ),
+                action=lambda: frame_extractor.extract(
+                    highlight=current_highlight,
+                    output_folder=str(frame_folder),
+                ),
             )
 
             highlight_frames[
-                highlight.rank
+                current_highlight.rank
             ] = frame_files
 
         progress.report(
@@ -253,18 +328,26 @@ class HighlightPipeline:
         visual_results = {}
 
         for highlight in generated_highlights:
-            frame_files = highlight_frames.get(
-                highlight.rank,
+            current_highlight = highlight
+
+            current_frame_files = highlight_frames.get(
+                current_highlight.rank,
                 [],
             )
 
-            visual_result = visual_reasoner.reason(
-                highlight=highlight,
-                frame_files=frame_files,
+            visual_result = stage_runner.run(
+                stage=(
+                    "Running visual AI reasoning "
+                    f"for rank {current_highlight.rank}"
+                ),
+                action=lambda: visual_reasoner.reason(
+                    highlight=current_highlight,
+                    frame_files=current_frame_files,
+                ),
             )
 
             visual_results[
-                highlight.rank
+                current_highlight.rank
             ] = visual_result
 
         progress.report(
@@ -277,16 +360,29 @@ class HighlightPipeline:
         fusion_results = []
 
         for analyzed_highlight in analyzed_highlights:
-            visual_result = visual_results.get(
-                analyzed_highlight.rank
+            current_analyzed_highlight = analyzed_highlight
+
+            current_visual_result = visual_results.get(
+                current_analyzed_highlight.rank
             )
 
-            if visual_result is None:
+            if current_visual_result is None:
                 continue
 
-            fusion_result = fusion_reasoner.reason(
-                analyzed_highlight=analyzed_highlight,
-                visual_reasoning=visual_result,
+            fusion_result = stage_runner.run(
+                stage=(
+                    "Fusing multimodal AI decisions "
+                    f"for rank "
+                    f"{current_analyzed_highlight.rank}"
+                ),
+                action=lambda: fusion_reasoner.reason(
+                    analyzed_highlight=(
+                        current_analyzed_highlight
+                    ),
+                    visual_reasoning=(
+                        current_visual_result
+                    ),
+                ),
             )
 
             fusion_results.append(
@@ -302,8 +398,11 @@ class HighlightPipeline:
             minimum_confidence=0.70,
         )
 
-        approved_results = final_selector.select(
-            fusion_results
+        approved_results = stage_runner.run(
+            stage="Selecting final approved highlights",
+            action=lambda: final_selector.select(
+                fusion_results
+            ),
         )
 
         progress.report(
@@ -313,9 +412,12 @@ class HighlightPipeline:
 
         final_combiner = FinalHighlightCombiner()
 
-        final_highlights = final_combiner.combine(
-            highlights=generated_highlights,
-            approved_results=approved_results,
+        final_highlights = stage_runner.run(
+            stage="Linking approved decisions to clips",
+            action=lambda: final_combiner.combine(
+                highlights=generated_highlights,
+                approved_results=approved_results,
+            ),
         )
 
         progress.report(
@@ -325,9 +427,12 @@ class HighlightPipeline:
 
         exporter = FinalHighlightExporter()
 
-        exported_files = exporter.export(
-            highlights=final_highlights,
-            output_folder=output_folder,
+        exported_files = stage_runner.run(
+            stage="Exporting final highlight package",
+            action=lambda: exporter.export(
+                highlights=final_highlights,
+                output_folder=output_folder,
+            ),
         )
 
         return PipelineResult(

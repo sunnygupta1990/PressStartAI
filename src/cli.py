@@ -1,6 +1,8 @@
 import argparse
 from pathlib import Path
 
+from src.exceptions.pipeline_execution_error import PipelineExecutionError
+from src.models.pipeline_error import PipelineError
 from src.models.pipeline_progress import PipelineProgress
 from src.services.highlight_pipeline import HighlightPipeline
 
@@ -42,6 +44,18 @@ def print_progress(
     )
 
 
+def print_pipeline_error(
+    error: PipelineError,
+) -> None:
+    print()
+    print("=" * 60)
+    print("PRESSSTARTAI ERROR")
+    print("=" * 60)
+    print(f"Stage            : {error.stage}")
+    print(f"Error            : {error.message}")
+    print(f"Exception Type   : {error.exception_type}")
+
+
 def main() -> None:
     arguments = parse_arguments()
 
@@ -51,12 +65,39 @@ def main() -> None:
 
     pipeline = HighlightPipeline()
 
-    result = pipeline.run(
-        video_file=str(video_file),
-        working_folder=arguments.working_folder,
-        output_folder=arguments.output_folder,
-        progress_callback=print_progress,
-    )
+    try:
+        result = pipeline.run(
+            video_file=str(video_file),
+            working_folder=arguments.working_folder,
+            output_folder=arguments.output_folder,
+            progress_callback=print_progress,
+        )
+    except PipelineExecutionError as error:
+        pipeline_error = PipelineError(
+            stage=error.stage,
+            message=str(error.__cause__ or error),
+            exception_type=type(
+                error.__cause__ or error
+            ).__name__,
+        )
+
+        print_pipeline_error(
+            pipeline_error
+        )
+
+        return
+    except Exception as error:
+        pipeline_error = PipelineError(
+            stage="Starting pipeline",
+            message=str(error),
+            exception_type=type(error).__name__,
+        )
+
+        print_pipeline_error(
+            pipeline_error
+        )
+
+        return
 
     print()
     print("=" * 60)
