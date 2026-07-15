@@ -2,6 +2,7 @@ from pathlib import Path
 
 import ffmpeg
 
+from src.models.generated_highlight import GeneratedHighlight
 from src.models.highlight_candidate import HighlightCandidate
 
 
@@ -13,7 +14,7 @@ class HighlightClipGenerator:
         video_file: str,
         candidates: list[HighlightCandidate],
         output_folder: str,
-    ) -> list[str]:
+    ) -> list[GeneratedHighlight]:
         video_path = Path(video_file)
 
         if not video_path.is_file():
@@ -32,7 +33,7 @@ class HighlightClipGenerator:
         ):
             old_file.unlink()
 
-        generated_files: list[str] = []
+        generated_highlights: list[GeneratedHighlight] = []
 
         for index, candidate in enumerate(
             candidates,
@@ -72,8 +73,11 @@ class HighlightClipGenerator:
                 quiet=True,
             )
 
-            generated_files.append(
-                str(output_file)
+            generated_highlights.append(
+                GeneratedHighlight(
+                    file_path=str(output_file),
+                    candidate=candidate,
+                )
             )
 
-        return generated_files
+        return generated_highlights

@@ -22,15 +22,16 @@ def create_candidate(
     start_seconds: float,
     end_seconds: float,
     final_score: float,
+    transcript_text: str,
 ) -> HighlightCandidate:
     features = HighlightFeatures(
         scene_start_seconds=start_seconds,
         scene_end_seconds=end_seconds,
         scene_duration_seconds=end_seconds - start_seconds,
-        transcript_text="",
-        has_speech=False,
-        speech_character_count=0,
-        speech_word_count=0,
+        transcript_text=transcript_text,
+        has_speech=bool(transcript_text),
+        speech_character_count=len(transcript_text),
+        speech_word_count=len(transcript_text.split()),
         average_motion_score=0.0,
         maximum_motion_score=0.0,
         average_audio_rms=0.0,
@@ -60,40 +61,68 @@ def main() -> None:
             start_seconds=18.00,
             end_seconds=29.17,
             final_score=0.8342,
+            transcript_text=(
+                "बाग बाग बाग बाग गलत हक्किया चलो "
+                "उस पेल ने बचा लिया मेरे को कभी नहीं हाँ"
+            ),
         ),
         create_candidate(
             rank=4,
             start_seconds=0.00,
             end_seconds=12.17,
             final_score=0.4806,
+            transcript_text=(
+                "जो आती गलत हो गई हर इससे सामने"
+            ),
         ),
     ]
 
     generator = HighlightClipGenerator()
 
-    generated_files = generator.generate(
+    generated_highlights = generator.generate(
         video_file=VIDEO_FILE,
         candidates=candidates,
         output_folder=OUTPUT_FOLDER,
     )
 
     print("=" * 60)
-    print("Highlight Clip Generator Verification")
+    print("Highlight Clip Metadata Verification")
     print("=" * 60)
 
-    print(f"Generated Clips: {len(generated_files)}")
+    print(
+        f"Generated Highlights: "
+        f"{len(generated_highlights)}"
+    )
     print()
 
-    for file_path in generated_files:
-        path = Path(file_path)
+    for highlight in generated_highlights:
+        path = Path(highlight.file_path)
 
         print("-" * 60)
-        print(f"File   : {path}")
-        print(f"Exists : {path.is_file()}")
+        print(f"File       : {path}")
+        print(f"Exists     : {path.is_file()}")
+        print(f"Rank       : {highlight.rank}")
+        print(
+            f"Timeline   : "
+            f"{highlight.start_seconds:.2f}s "
+            f"-> {highlight.end_seconds:.2f}s"
+        )
+        print(
+            f"Duration   : "
+            f"{highlight.duration_seconds:.2f}s"
+        )
+        print(
+            f"Final Score: "
+            f"{highlight.final_score:.4f}"
+        )
+        print(
+            f"Transcript : "
+            f"{highlight.transcript_text or '[NO SPEECH]'}"
+        )
 
         if path.is_file():
             print(
-                f"Size   : "
+                f"Size       : "
                 f"{path.stat().st_size / 1024 / 1024:.2f} MB"
             )
 
