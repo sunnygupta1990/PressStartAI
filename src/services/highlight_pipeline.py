@@ -295,7 +295,8 @@ class HighlightPipeline:
         )
 
         frame_extractor = HighlightFrameExtractor(
-            frame_count=5,
+            frame_count=3,
+            maximum_frame_width=768,
         )
 
         highlight_frames: dict[int, list[str]] = {}
@@ -324,6 +325,11 @@ class HighlightPipeline:
         )
 
         visual_reasoner = VisualHighlightReasoner()
+
+        stage_runner.run(
+            stage="Warming up visual AI model",
+            action=visual_reasoner.warm_up,
+        )
 
         visual_results = {}
 
@@ -440,4 +446,5 @@ class HighlightPipeline:
             video_duration_seconds=video_info.duration_seconds,
             final_highlights=final_highlights,
             exported_files=exported_files,
+            stage_timings=list(stage_runner.timings),
         )

@@ -5,6 +5,7 @@ from src.exceptions.pipeline_execution_error import PipelineExecutionError
 from src.models.pipeline_error import PipelineError
 from src.models.pipeline_progress import PipelineProgress
 from src.services.highlight_pipeline import HighlightPipeline
+from src.services.pipeline_run_path_builder import PipelineRunPathBuilder
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -22,14 +23,20 @@ def parse_arguments() -> argparse.Namespace:
 
     parser.add_argument(
         "--working-folder",
-        default="temp/pipeline_run",
-        help="Folder used for temporary pipeline files.",
+        default=None,
+        help=(
+            "Optional folder used for temporary pipeline files. "
+            "A unique run folder is created by default."
+        ),
     )
 
     parser.add_argument(
         "--output-folder",
-        default="output/highlights",
-        help="Folder used for final approved highlights.",
+        default=None,
+        help=(
+            "Optional folder used for final approved highlights. "
+            "A unique run folder is created by default."
+        ),
     )
 
     return parser.parse_args()
@@ -63,13 +70,37 @@ def main() -> None:
         arguments.video_file
     )
 
+    path_builder = PipelineRunPathBuilder()
+
+    run_paths = path_builder.build(
+        video_file=str(video_file),
+    )
+
+    working_folder = (
+        arguments.working_folder
+        or run_paths.working_folder
+    )
+
+    output_folder = (
+        arguments.output_folder
+        or run_paths.output_folder
+    )
+
+    print("=" * 60)
+    print("PRESSSTARTAI")
+    print("=" * 60)
+    print(f"Run ID            : {run_paths.run_id}")
+    print(f"Working Folder    : {working_folder}")
+    print(f"Output Folder     : {output_folder}")
+    print()
+
     pipeline = HighlightPipeline()
 
     try:
         result = pipeline.run(
             video_file=str(video_file),
-            working_folder=arguments.working_folder,
-            output_folder=arguments.output_folder,
+            working_folder=working_folder,
+            output_folder=output_folder,
             progress_callback=print_progress,
         )
     except PipelineExecutionError as error:
@@ -124,6 +155,16 @@ def main() -> None:
         f"{result.exported_file_count}"
     )
 
+    print(
+        f"Pipeline Time     : "
+        f"{result.total_duration_seconds:.2f}s"
+    )
+
+    print(
+        f"Output Folder     : "
+        f"{output_folder}"
+    )
+
     for highlight, exported_file in zip(
         result.final_highlights,
         result.exported_files,
@@ -150,6 +191,17 @@ def main() -> None:
         print(
             f"Event Summary    : "
             f"{highlight.event_summary}"
+        )
+
+    print()
+    print("=" * 60)
+    print("PIPELINE STAGE TIMINGS")
+    print("=" * 60)
+
+    for timing in result.stage_timings:
+        print(
+            f"{timing.stage:<45} "
+            f"{timing.duration_seconds:.2f}s"
         )
 
 

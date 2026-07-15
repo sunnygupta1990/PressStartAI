@@ -17,6 +17,18 @@ class VisualHighlightReasoner:
         "http://localhost:11434/api/generate"
     )
 
+    KEEP_ALIVE = "30m"
+
+    def warm_up(self) -> None:
+        request_data = {
+            "model": self.MODEL_NAME,
+            "keep_alive": self.KEEP_ALIVE,
+        }
+
+        self._send_request(
+            request_data
+        )
+
     def reason(
         self,
         highlight: GeneratedHighlight,
@@ -39,48 +51,11 @@ class VisualHighlightReasoner:
             "images": images,
             "stream": False,
             "format": "json",
+            "keep_alive": self.KEEP_ALIVE,
         }
 
-        request_body = json.dumps(
+        response_data = self._send_request(
             request_data
-        ).encode("utf-8")
-
-        request = urllib.request.Request(
-            self.OLLAMA_API_URL,
-            data=request_body,
-            headers={
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=300,
-            ) as response:
-                response_text = (
-                    response.read().decode("utf-8")
-                )
-
-        except urllib.error.HTTPError as error:
-            error_body = error.read().decode(
-                "utf-8",
-                errors="replace",
-            )
-
-            raise RuntimeError(
-                f"Ollama HTTP error "
-                f"{error.code}: {error_body}"
-            ) from error
-
-        except urllib.error.URLError as error:
-            raise RuntimeError(
-                f"Unable to connect to Ollama: {error}"
-            ) from error
-
-        response_data = json.loads(
-            response_text
         )
 
         model_response = str(
@@ -133,6 +108,60 @@ class VisualHighlightReasoner:
                 )
             ),
         )
+
+    def _send_request(
+        self,
+        request_data: dict[str, object],
+    ) -> dict[str, object]:
+        request_body = json.dumps(
+            request_data
+        ).encode("utf-8")
+
+        request = urllib.request.Request(
+            self.OLLAMA_API_URL,
+            data=request_body,
+            headers={
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=300,
+            ) as response:
+                response_text = (
+                    response.read().decode("utf-8")
+                )
+
+        except urllib.error.HTTPError as error:
+            error_body = error.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+            raise RuntimeError(
+                f"Ollama HTTP error "
+                f"{error.code}: {error_body}"
+            ) from error
+
+        except urllib.error.URLError as error:
+            raise RuntimeError(
+                f"Unable to connect to Ollama: {error}"
+            ) from error
+
+        response_data = json.loads(
+            response_text
+        )
+
+        if not isinstance(
+            response_data,
+            dict,
+        ):
+            return {}
+
+        return response_data
 
     @staticmethod
     def _build_prompt(

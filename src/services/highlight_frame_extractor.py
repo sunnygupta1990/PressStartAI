@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from src.models.generated_highlight import GeneratedHighlight
 
@@ -11,8 +12,20 @@ class HighlightFrameExtractor:
     def __init__(
         self,
         frame_count: int = 5,
+        maximum_frame_width: int = 768,
     ) -> None:
+        if frame_count <= 0:
+            raise ValueError(
+                "frame_count must be greater than zero."
+            )
+
+        if maximum_frame_width <= 0:
+            raise ValueError(
+                "maximum_frame_width must be greater than zero."
+            )
+
         self.frame_count = frame_count
+        self.maximum_frame_width = maximum_frame_width
 
     def extract(
         self,
@@ -56,7 +69,6 @@ class HighlightFrameExtractor:
 
         if total_frames <= 0:
             capture.release()
-
             return []
 
         sample_count = min(
@@ -86,6 +98,10 @@ class HighlightFrameExtractor:
                 if not success:
                     continue
 
+                frame = self._resize_frame(
+                    frame
+                )
+
                 output_file = output_path / (
                     f"{frame_prefix}"
                     f"{frame_number:03d}.jpg"
@@ -94,6 +110,10 @@ class HighlightFrameExtractor:
                 written = cv2.imwrite(
                     str(output_file),
                     frame,
+                    [
+                        cv2.IMWRITE_JPEG_QUALITY,
+                        85,
+                    ],
                 )
 
                 if not written:
@@ -106,6 +126,34 @@ class HighlightFrameExtractor:
             capture.release()
 
         return generated_frames
+
+    def _resize_frame(
+        self,
+        frame: np.ndarray,
+    ) -> np.ndarray:
+        frame_height, frame_width = frame.shape[:2]
+
+        if frame_width <= self.maximum_frame_width:
+            return frame
+
+        scale = (
+            self.maximum_frame_width
+            / frame_width
+        )
+
+        resized_height = max(
+            1,
+            round(frame_height * scale),
+        )
+
+        return cv2.resize(
+            frame,
+            (
+                self.maximum_frame_width,
+                resized_height,
+            ),
+            interpolation=cv2.INTER_AREA,
+        )
 
     @staticmethod
     def _calculate_frame_indexes(
