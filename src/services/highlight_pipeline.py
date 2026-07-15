@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from pathlib import Path
 
+from src.models.pipeline_progress import PipelineProgress
 from src.models.pipeline_result import PipelineResult
 from src.services.asr.transcription_pipeline import TranscriptionPipeline
 from src.services.audio_analyzer import AudioAnalyzer
@@ -17,6 +19,7 @@ from src.services.highlight_reasoner import HighlightReasoner
 from src.services.highlight_scorer import HighlightScorer
 from src.services.highlight_selector import HighlightSelector
 from src.services.motion_analyzer import MotionAnalyzer
+from src.services.pipeline_progress_reporter import PipelineProgressReporter
 from src.services.scene_detector import SceneDetector
 from src.services.scene_transcript_mapper import SceneTranscriptMapper
 from src.services.speech_chunk_extractor import SpeechChunkExtractor
@@ -33,6 +36,10 @@ class HighlightPipeline:
         video_file: str,
         working_folder: str,
         output_folder: str,
+        progress_callback: Callable[
+            [PipelineProgress],
+            None,
+        ] | None = None,
     ) -> PipelineResult:
         video_path = Path(video_file)
 
@@ -40,6 +47,11 @@ class HighlightPipeline:
             raise FileNotFoundError(
                 f"Video file does not exist: {video_path}"
             )
+
+        progress = PipelineProgressReporter(
+            callback=progress_callback,
+            total_steps=19,
+        )
 
         working_path = Path(working_folder)
 
@@ -53,9 +65,19 @@ class HighlightPipeline:
             exist_ok=True,
         )
 
+        progress.report(
+            1,
+            "Loading video",
+        )
+
         video_loader = VideoLoader()
         video_info = video_loader.load(
             str(video_path)
+        )
+
+        progress.report(
+            2,
+            "Extracting audio",
         )
 
         audio_extractor = AudioExtractor()
@@ -64,9 +86,19 @@ class HighlightPipeline:
             output_audio=str(audio_file),
         )
 
+        progress.report(
+            3,
+            "Detecting speech",
+        )
+
         vad = VoiceActivityDetector()
         speech_segments = vad.detect(
             str(audio_file)
+        )
+
+        progress.report(
+            4,
+            "Creating speech chunks",
         )
 
         speech_chunk_extractor = SpeechChunkExtractor()
@@ -76,14 +108,29 @@ class HighlightPipeline:
             output_folder=str(speech_folder),
         )
 
+        progress.report(
+            5,
+            "Transcribing commentary",
+        )
+
         transcription_pipeline = TranscriptionPipeline()
         transcript_segments = transcription_pipeline.transcribe(
             speech_chunks
         )
 
+        progress.report(
+            6,
+            "Detecting scenes",
+        )
+
         scene_detector = SceneDetector()
         scenes = scene_detector.detect(
             str(video_path)
+        )
+
+        progress.report(
+            7,
+            "Mapping commentary to scenes",
         )
 
         scene_mapper = SceneTranscriptMapper()
@@ -92,16 +139,31 @@ class HighlightPipeline:
             transcript_segments=transcript_segments,
         )
 
+        progress.report(
+            8,
+            "Analyzing motion",
+        )
+
         motion_analyzer = MotionAnalyzer()
         motion_features = motion_analyzer.analyze(
             video_file=str(video_path),
             scenes=scenes,
         )
 
+        progress.report(
+            9,
+            "Analyzing audio intensity",
+        )
+
         audio_analyzer = AudioAnalyzer()
         audio_features = audio_analyzer.analyze(
             audio_file=str(audio_file),
             scenes=scenes,
+        )
+
+        progress.report(
+            10,
+            "Scoring highlight scenes",
         )
 
         feature_extractor = HighlightFeatureExtractor()
@@ -116,6 +178,11 @@ class HighlightPipeline:
             highlight_features
         )
 
+        progress.report(
+            11,
+            "Selecting highlight candidates",
+        )
+
         selector = HighlightSelector()
         candidates = selector.select(
             scores=highlight_scores,
@@ -127,11 +194,21 @@ class HighlightPipeline:
             candidates
         )
 
+        progress.report(
+            12,
+            "Generating highlight clips",
+        )
+
         clip_generator = HighlightClipGenerator()
         generated_highlights = clip_generator.generate(
             video_file=str(video_path),
             candidates=candidates,
             output_folder=str(highlight_folder),
+        )
+
+        progress.report(
+            13,
+            "Running commentary AI reasoning",
         )
 
         commentary_reasoner = HighlightReasoner()
@@ -143,6 +220,11 @@ class HighlightPipeline:
         analyzed_highlights = analysis_combiner.combine(
             highlights=generated_highlights,
             reasoning_results=commentary_results,
+        )
+
+        progress.report(
+            14,
+            "Extracting representative frames",
         )
 
         frame_extractor = HighlightFrameExtractor(
@@ -160,6 +242,11 @@ class HighlightPipeline:
             highlight_frames[
                 highlight.rank
             ] = frame_files
+
+        progress.report(
+            15,
+            "Running visual AI reasoning",
+        )
 
         visual_reasoner = VisualHighlightReasoner()
 
@@ -179,6 +266,11 @@ class HighlightPipeline:
             visual_results[
                 highlight.rank
             ] = visual_result
+
+        progress.report(
+            16,
+            "Fusing multimodal AI decisions",
+        )
 
         fusion_reasoner = HighlightFusionReasoner()
 
@@ -201,6 +293,11 @@ class HighlightPipeline:
                 fusion_result
             )
 
+        progress.report(
+            17,
+            "Selecting final approved highlights",
+        )
+
         final_selector = FinalHighlightSelector(
             minimum_confidence=0.70,
         )
@@ -209,11 +306,21 @@ class HighlightPipeline:
             fusion_results
         )
 
+        progress.report(
+            18,
+            "Linking approved decisions to clips",
+        )
+
         final_combiner = FinalHighlightCombiner()
 
         final_highlights = final_combiner.combine(
             highlights=generated_highlights,
             approved_results=approved_results,
+        )
+
+        progress.report(
+            19,
+            "Exporting final highlight package",
         )
 
         exporter = FinalHighlightExporter()

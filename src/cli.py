@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+from src.models.pipeline_progress import PipelineProgress
 from src.services.highlight_pipeline import HighlightPipeline
 
 
@@ -32,6 +33,15 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def print_progress(
+    progress: PipelineProgress,
+) -> None:
+    print(
+        f"[{progress.step}/{progress.total_steps}] "
+        f"{progress.message}..."
+    )
+
+
 def main() -> None:
     arguments = parse_arguments()
 
@@ -45,6 +55,7 @@ def main() -> None:
         video_file=str(video_file),
         working_folder=arguments.working_folder,
         output_folder=arguments.output_folder,
+        progress_callback=print_progress,
     )
 
     print()
