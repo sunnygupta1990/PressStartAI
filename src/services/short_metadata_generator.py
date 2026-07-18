@@ -1,6 +1,10 @@
+# src/services/short_metadata_generator.py
+
 import json
 import re
-import subprocess
+import time
+import urllib.error
+import urllib.request
 
 from src.models.final_highlight import FinalHighlight
 from src.models.short_metadata import ShortMetadata
@@ -8,13 +12,14 @@ from src.services.ai_text_cleaner import AITextCleaner
 
 
 class ShortMetadataGenerator:
-    """Generate YouTube Short publishing metadata with local AI."""
+    """Generate lightweight metadata for one YouTube Short."""
 
     MODEL_NAME = "gemma3:4b"
 
-    OLLAMA_EXECUTABLE = (
-        r"C:\Users\SunGupta\AppData\Local\Programs\Ollama\ollama.exe"
-    )
+    OLLAMA_API_URL = "http://localhost:11434/api/generate"
+    REQUEST_TIMEOUT_SECONDS = 900
+    RETRY_DELAY_SECONDS = 5
+    KEEP_ALIVE = "30m"
 
     ANSI_ESCAPE_PATTERN = re.compile(
         r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
@@ -36,6 +41,8 @@ class ShortMetadataGenerator:
         self,
         highlight: FinalHighlight,
     ) -> ShortMetadata:
+        """Generate hook, title, and hashtags only."""
+
         for attempt in range(
             1,
             self.MAXIMUM_ATTEMPTS + 1,
@@ -45,22 +52,12 @@ class ShortMetadataGenerator:
                 attempt=attempt,
             )
 
-            process = subprocess.run(
-                [
-                    self.OLLAMA_EXECUTABLE,
-                    "run",
-                    self.MODEL_NAME,
-                ],
-                input=prompt,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
+            response_text = self._generate(
+                prompt
             )
 
             data = self._parse_response(
-                process.stdout
+                response_text
             )
 
             metadata = self._build_metadata(
@@ -68,14 +65,88 @@ class ShortMetadataGenerator:
                 data=data,
             )
 
-            if self._is_valid(
-                metadata
-            ):
+            if self._is_valid(metadata):
                 return metadata
 
         return self._build_fallback_metadata(
             highlight
         )
+
+    def _generate(
+        self,
+        prompt: str,
+    ) -> str:
+        """Generate metadata through Ollama's persistent local API."""
+
+        request_data = {
+            "model": self.MODEL_NAME,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": self.KEEP_ALIVE,
+        }
+
+        request_body = json.dumps(
+            request_data
+        ).encode("utf-8")
+
+        last_error: Exception | None = None
+
+        for attempt in range(
+            1,
+            self.MAXIMUM_ATTEMPTS + 1,
+        ):
+            request = urllib.request.Request(
+                self.OLLAMA_API_URL,
+                data=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.REQUEST_TIMEOUT_SECONDS,
+                ) as response:
+                    response_data = json.loads(
+                        response.read().decode("utf-8")
+                    )
+
+                return str(
+                    response_data.get(
+                        "response",
+                        "",
+                    )
+                )
+
+            except urllib.error.HTTPError as error:
+                error_body = error.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+
+                raise RuntimeError(
+                    f"Ollama HTTP error "
+                    f"{error.code}: {error_body}"
+                ) from error
+
+            except (
+                TimeoutError,
+                urllib.error.URLError,
+            ) as error:
+                last_error = error
+
+                if attempt < self.MAXIMUM_ATTEMPTS:
+                    time.sleep(
+                        self.RETRY_DELAY_SECONDS
+                    )
+
+        raise RuntimeError(
+            "Ollama metadata generation failed after "
+            f"{self.MAXIMUM_ATTEMPTS} attempts: "
+            f"{last_error}"
+        ) from last_error
 
     def _build_metadata(
         self,
@@ -111,14 +182,7 @@ class ShortMetadataGenerator:
                     )
                 )
             ),
-            description=self.text_cleaner.clean(
-                str(
-                    data.get(
-                        "description",
-                        "",
-                    )
-                )
-            ),
+            description="",
             hashtags=[
                 self.text_cleaner.clean(
                     str(hashtag)
@@ -126,14 +190,7 @@ class ShortMetadataGenerator:
                 for hashtag in hashtags
                 if str(hashtag).strip()
             ],
-            thumbnail_prompt=self.text_cleaner.clean(
-                str(
-                    data.get(
-                        "thumbnail_prompt",
-                        "",
-                    )
-                )
-            ),
+            thumbnail_prompt="",
         )
 
     @classmethod
@@ -141,17 +198,10 @@ class ShortMetadataGenerator:
         cls,
         metadata: ShortMetadata,
     ) -> bool:
-        required_text = [
-            metadata.hook,
-            metadata.title,
-            metadata.description,
-            metadata.thumbnail_prompt,
-        ]
+        if not metadata.hook.strip():
+            return False
 
-        if any(
-            not value.strip()
-            for value in required_text
-        ):
+        if not metadata.title.strip():
             return False
 
         if not metadata.hashtags:
@@ -170,8 +220,7 @@ class ShortMetadataGenerator:
             [
                 metadata.hook,
                 metadata.title,
-                metadata.description,
-                metadata.thumbnail_prompt,
+                *metadata.hashtags,
             ]
         )
 
@@ -208,11 +257,7 @@ class ShortMetadataGenerator:
             rank=highlight.rank,
             hook=hook,
             title=title,
-            description=(
-                "Ek aur crazy gaming moment! "
-                "Press Start with Sunny par "
-                "real reactions aur gameplay."
-            ),
+            description="",
             hashtags=[
                 "#Gaming",
                 "#HindiGaming",
@@ -220,15 +265,7 @@ class ShortMetadataGenerator:
                 "#Reaction",
                 "#Gameplay",
             ],
-            thumbnail_prompt=(
-                "Sunny with real facial identity preserved, "
-                "wearing a black hoodie, expression matching "
-                f"a {category} gaming moment, blue and black "
-                "gaming branding, dramatic gameplay background "
-                f"based on: {highlight.visual_event}, "
-                "high contrast, vertical gaming Short cover, "
-                f"suggested cover text: '{hook}'"
-            ),
+            thumbnail_prompt="",
         )
 
     @staticmethod
@@ -254,8 +291,8 @@ or simple English.
 """
 
         return f"""
-You are creating YouTube Shorts metadata for the gaming channel
-"Press Start with Sunny".
+You are creating lightweight YouTube Shorts metadata for the gaming
+channel "Press Start with Sunny".
 
 The channel style is:
 - Hindi and Hinglish gaming
@@ -300,7 +337,10 @@ Use only:
 Never use Tamil, Telugu, Kannada, Malayalam,
 or any other Indian script.
 
-Create publishing metadata for one YouTube Short.
+Create only:
+- one short hook
+- one YouTube Short title
+- five to eight hashtags
 
 Hook rules:
 - very short
@@ -316,45 +356,23 @@ Title rules:
 - natural, not corporate
 - do not invent a game name if it is unknown
 
-Description rules:
-- maximum 3 short lines
-- Hindi/Hinglish tone
-- mention Press Start with Sunny naturally
-- do not invent facts
-
 Hashtag rules:
 - return 5 to 8 hashtags
 - each hashtag must begin with #
 - gaming and event relevant
 - do not invent a game-specific hashtag if the game is unknown
 
-Thumbnail prompt rules:
-- describe Sunny with his real facial identity preserved
-- black hoodie
-- expression must match the highlight
-- blue and black gaming branding
-- dramatic gaming background based on the visual event
-- high contrast
-- suitable for a vertical gaming Short cover
-- include a short suggested cover text
-
 {retry_instruction}
 
-Return ONLY valid JSON.
-
-Every field is mandatory and must contain a value.
-
-Use this exact structure:
+Return ONLY valid JSON using this exact structure:
 
 {{
     "hook": "Short hook",
     "title": "YouTube Short title",
-    "description": "Short description",
     "hashtags": [
         "#Gaming",
         "#HindiGaming"
-    ],
-    "thumbnail_prompt": "Detailed thumbnail prompt"
+    ]
 }}
 """.strip()
 
@@ -457,6 +475,4 @@ Use this exact structure:
                 character
             )
 
-        return "".join(
-            repaired
-        )
+        return "".join(repaired)

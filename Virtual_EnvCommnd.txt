@@ -1,0 +1,2 @@
+cd /d "C:\AI Projects\PressStartAI"
+.venv\Scripts\activate.bat

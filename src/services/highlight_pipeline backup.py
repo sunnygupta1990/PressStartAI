@@ -29,7 +29,6 @@ from src.services.video_loader import VideoLoader
 from src.services.visual_highlight_reasoner import VisualHighlightReasoner
 from src.services.voice_activity_detector import VoiceActivityDetector
 from src.services.recording_session_loader import RecordingSessionLoader
-from src.services.recording_synchronizer import RecordingSynchronizer
 
 
 class HighlightPipeline:
@@ -41,25 +40,17 @@ class HighlightPipeline:
         working_folder: str,
         output_folder: str,
         layout_type: str,
-        gameplay_video: str | None = None,
-        facecam_video: str | None = None,
         progress_callback: Callable[
             [PipelineProgress],
             None,
         ] | None = None,
     ) -> PipelineResult:
-        recording_session_loader = RecordingSessionLoader()
+        video_path = Path(video_file)
 
-        recording_session = recording_session_loader.load(
-            video_file=video_file,
-            layout_type=layout_type,
-            gameplay_video=gameplay_video,
-            facecam_video=facecam_video,
-        )
-
-        video_path = Path(
-            recording_session.recording_video
-        )
+        if not video_path.is_file():
+            raise FileNotFoundError(
+                f"Video file does not exist: {video_path}"
+            )
 
         progress = PipelineProgressReporter(
             callback=progress_callback,
@@ -81,19 +72,6 @@ class HighlightPipeline:
             parents=True,
             exist_ok=True,
         )
-
-        if recording_session.has_facecam_layout:
-            recording_synchronizer = RecordingSynchronizer()
-
-            synchronization = stage_runner.run(
-                stage="Synchronizing recordings",
-                action=lambda: recording_synchronizer.synchronize(
-                    recording_session=recording_session,
-                    working_folder=str(working_path),
-                ),
-            )
-
-            recording_session.synchronization = synchronization
 
         progress.report(
             1,
@@ -478,14 +456,13 @@ class HighlightPipeline:
         short_package_builder = ShortPackageBatchBuilder()
 
         short_packages = stage_runner.run(
-            stage="Building final YouTube Short packages",
-            action=lambda: short_package_builder.build(
-                highlights=final_highlights,
-                output_folder=str(short_package_folder),
-                recording_session=recording_session,
-                layout_type=layout_type,
-            ),
-        )
+    stage="Building final YouTube Short packages",
+    action=lambda: short_package_builder.build(
+        highlights=final_highlights,
+        output_folder=str(short_package_folder),
+        layout_type=layout_type,
+    ),
+)
 
         return PipelineResult(
             source_video_file=str(video_path),

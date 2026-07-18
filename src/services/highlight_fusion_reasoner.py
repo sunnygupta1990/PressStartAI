@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -16,6 +17,11 @@ class HighlightFusionReasoner:
         "http://localhost:11434/api/generate"
     )
 
+    REQUEST_TIMEOUT_SECONDS = 900
+    MAXIMUM_ATTEMPTS = 3
+    RETRY_DELAY_SECONDS = 5
+    KEEP_ALIVE = "30m"
+
     def reason(
         self,
         analyzed_highlight: AnalyzedHighlight,
@@ -31,45 +37,12 @@ class HighlightFusionReasoner:
             "prompt": prompt,
             "stream": False,
             "format": "json",
+            "keep_alive": self.KEEP_ALIVE,
         }
 
-        request_body = json.dumps(
+        response_text = self._send_request(
             request_data
-        ).encode("utf-8")
-
-        request = urllib.request.Request(
-            self.OLLAMA_API_URL,
-            data=request_body,
-            headers={
-                "Content-Type": "application/json",
-            },
-            method="POST",
         )
-
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=300,
-            ) as response:
-                response_text = (
-                    response.read().decode("utf-8")
-                )
-
-        except urllib.error.HTTPError as error:
-            error_body = error.read().decode(
-                "utf-8",
-                errors="replace",
-            )
-
-            raise RuntimeError(
-                f"Ollama HTTP error "
-                f"{error.code}: {error_body}"
-            ) from error
-
-        except urllib.error.URLError as error:
-            raise RuntimeError(
-                f"Unable to connect to Ollama: {error}"
-            ) from error
 
         response_data = json.loads(
             response_text
@@ -131,6 +104,66 @@ class HighlightFusionReasoner:
                 )
             ),
         )
+
+    def _send_request(
+        self,
+        request_data: dict[str, object],
+    ) -> str:
+        request_body = json.dumps(
+            request_data
+        ).encode("utf-8")
+
+        last_error: Exception | None = None
+
+        for attempt in range(
+            1,
+            self.MAXIMUM_ATTEMPTS + 1,
+        ):
+            request = urllib.request.Request(
+                self.OLLAMA_API_URL,
+                data=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.REQUEST_TIMEOUT_SECONDS,
+                ) as response:
+                    return response.read().decode(
+                        "utf-8"
+                    )
+
+            except urllib.error.HTTPError as error:
+                error_body = error.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+
+                raise RuntimeError(
+                    f"Ollama HTTP error "
+                    f"{error.code}: {error_body}"
+                ) from error
+
+            except (
+                TimeoutError,
+                urllib.error.URLError,
+            ) as error:
+                last_error = error
+
+                if attempt < self.MAXIMUM_ATTEMPTS:
+                    time.sleep(
+                        self.RETRY_DELAY_SECONDS
+                    )
+
+        raise RuntimeError(
+            "Ollama fusion reasoning failed after "
+            f"{self.MAXIMUM_ATTEMPTS} attempts: "
+            f"{last_error}"
+        ) from last_error
 
     @staticmethod
     def _build_prompt(

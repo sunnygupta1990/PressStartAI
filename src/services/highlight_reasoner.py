@@ -1,6 +1,10 @@
+# src/services/highlight_reasoner.py
+
 import json
 import re
-import subprocess
+import time
+import urllib.error
+import urllib.request
 
 from src.models.generated_highlight import GeneratedHighlight
 from src.models.highlight_reasoning import HighlightReasoning
@@ -10,10 +14,11 @@ class HighlightReasoner:
     """Use a local Ollama model to reason about highlight candidates."""
 
     MODEL_NAME = "gemma3:4b"
-
-    OLLAMA_EXECUTABLE = (
-        r"C:\Users\SunGupta\AppData\Local\Programs\Ollama\ollama.exe"
-    )
+    OLLAMA_API_URL = "http://localhost:11434/api/generate"
+    REQUEST_TIMEOUT_SECONDS = 900
+    MAXIMUM_ATTEMPTS = 3
+    RETRY_DELAY_SECONDS = 5
+    KEEP_ALIVE = "30m"
 
     ANSI_ESCAPE_PATTERN = re.compile(
         r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
@@ -23,6 +28,8 @@ class HighlightReasoner:
         self,
         highlights: list[GeneratedHighlight],
     ) -> list[HighlightReasoning]:
+        """Analyze every generated highlight."""
+
         results: list[HighlightReasoning] = []
 
         for highlight in highlights:
@@ -36,24 +43,10 @@ class HighlightReasoner:
         self,
         highlight: GeneratedHighlight,
     ) -> HighlightReasoning:
+        """Analyze one highlight without starting a new Ollama process."""
+
         prompt = self._build_prompt(highlight)
-
-        process = subprocess.run(
-            [
-                self.OLLAMA_EXECUTABLE,
-                "run",
-                self.MODEL_NAME,
-            ],
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-        )
-
-        response_text = process.stdout.strip()
-
+        response_text = self._generate(prompt).strip()
         data = self._parse_response(response_text)
 
         return HighlightReasoning(
@@ -71,6 +64,83 @@ class HighlightReasoner:
                 data.get("confidence", 0.0)
             ),
         )
+
+    def _generate(
+        self,
+        prompt: str,
+    ) -> str:
+        """Generate reasoning through Ollama's persistent local API."""
+
+        request_data = {
+            "model": self.MODEL_NAME,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "keep_alive": self.KEEP_ALIVE,
+        }
+
+        request_body = json.dumps(
+            request_data
+        ).encode("utf-8")
+
+        last_error: Exception | None = None
+
+        for attempt in range(
+            1,
+            self.MAXIMUM_ATTEMPTS + 1,
+        ):
+            request = urllib.request.Request(
+                self.OLLAMA_API_URL,
+                data=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.REQUEST_TIMEOUT_SECONDS,
+                ) as response:
+                    response_data = json.loads(
+                        response.read().decode("utf-8")
+                    )
+
+                return str(
+                    response_data.get(
+                        "response",
+                        "",
+                    )
+                )
+
+            except urllib.error.HTTPError as error:
+                error_body = error.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+
+                raise RuntimeError(
+                    f"Ollama HTTP error "
+                    f"{error.code}: {error_body}"
+                ) from error
+
+            except (
+                TimeoutError,
+                urllib.error.URLError,
+            ) as error:
+                last_error = error
+
+                if attempt < self.MAXIMUM_ATTEMPTS:
+                    time.sleep(
+                        self.RETRY_DELAY_SECONDS
+                    )
+
+        raise RuntimeError(
+            "Ollama commentary reasoning failed after "
+            f"{self.MAXIMUM_ATTEMPTS} attempts: "
+            f"{last_error}"
+        ) from last_error
 
     @staticmethod
     def _build_prompt(
