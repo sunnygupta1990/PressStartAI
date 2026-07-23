@@ -3,6 +3,8 @@
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -11,6 +13,9 @@ from src.models.pipeline_error import PipelineError
 from src.models.pipeline_progress import PipelineProgress
 from src.services.highlight_pipeline import HighlightPipeline
 from src.services.pipeline_run_path_builder import PipelineRunPathBuilder
+from src.services.ranking_video_cli import (
+    create_ranking_video_from_dialogs,
+)
 
 
 @dataclass(slots=True)
@@ -118,6 +123,310 @@ def select_mp4_file(
             continue
 
         return str(selected_path)
+
+
+def select_background_removal_output(
+    source_video: str,
+) -> str | None:
+    """Select where the background-removed MP4 should be saved."""
+
+    source_path = Path(source_video)
+    default_name = (
+        f"{source_path.stem}_background_removed.mp4"
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+
+    selected_file = filedialog.asksaveasfilename(
+        parent=root,
+        title="Save Background-Removed Video",
+        initialdir=str(source_path.parent),
+        initialfile=default_name,
+        defaultextension=".mp4",
+        filetypes=[
+            ("MP4 video files", "*.mp4"),
+        ],
+    )
+
+    root.destroy()
+
+    if not selected_file:
+        return None
+
+    return str(Path(selected_file).resolve())
+
+
+def create_black_background(
+    width: int,
+    height: int,
+) -> object:
+    """Create the replacement background used by the MP4 output."""
+
+    import numpy as np
+
+    return np.zeros(
+        (height, width, 3),
+        dtype=np.uint8,
+    )
+
+
+def remux_original_audio(
+    silent_video: Path,
+    source_video: Path,
+    output_video: Path,
+) -> bool:
+    """Copy source audio into the processed video when FFmpeg is available."""
+
+    ffmpeg_path = shutil.which("ffmpeg")
+
+    if ffmpeg_path is None:
+        return False
+
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        str(silent_video),
+        "-i",
+        str(source_video),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a?",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(output_video),
+    ]
+
+    completed_process = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    return (
+        completed_process.returncode == 0
+        and output_video.exists()
+        and output_video.stat().st_size > 0
+    )
+
+
+def remove_video_background() -> None:
+    """Run standalone facecam background removal from the main menu."""
+
+    source_video = select_mp4_file(
+        "Select Video for Background Removal",
+    )
+
+    if source_video is None:
+        return
+
+    output_video = select_background_removal_output(
+        source_video
+    )
+
+    if output_video is None:
+        return
+
+    try:
+        import cv2
+
+        from src.services.facecam_background_removal_service import (
+            RvmOpenVinoMattingService,
+        )
+    except ImportError as error:
+        print()
+        print(
+            "Background removal dependencies are unavailable: "
+            f"{error}"
+        )
+        return
+
+    source_path = Path(source_video).resolve()
+    output_path = Path(output_video).resolve()
+    model_path = Path(
+        "models/rvm/rvm_mobilenetv3_fp16.onnx"
+    ).resolve()
+
+    if source_path == output_path:
+        print(
+            "The output file must be different from the input file."
+        )
+        return
+
+    if not model_path.exists():
+        print(
+            "Background-removal model was not found: "
+            f"{model_path}"
+        )
+        return
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    silent_output_path = output_path.with_name(
+        f"{output_path.stem}.silent{output_path.suffix}"
+    )
+
+    capture = cv2.VideoCapture(str(source_path))
+    writer = None
+
+    try:
+        if not capture.isOpened():
+            raise RuntimeError(
+                f"Unable to open video: {source_path}"
+            )
+
+        fps = float(
+            capture.get(cv2.CAP_PROP_FPS)
+        )
+        width = int(
+            capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+        )
+        height = int(
+            capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        )
+        frame_count = int(
+            capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        )
+
+        if fps <= 0 or width <= 0 or height <= 0:
+            raise RuntimeError(
+                "Unable to read the source video metadata."
+            )
+
+        writer = cv2.VideoWriter(
+            str(silent_output_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            fps,
+            (width, height),
+        )
+
+        if not writer.isOpened():
+            raise RuntimeError(
+                f"Unable to create output video: "
+                f"{silent_output_path}"
+            )
+
+        service = RvmOpenVinoMattingService(
+            model_path=model_path,
+            device="CPU",
+            downsample_ratio=0.25,
+            alpha_threshold=0.02,
+            maximum_processing_width=1280,
+        )
+        service.reset()
+
+        replacement_background = create_black_background(
+            width=width,
+            height=height,
+        )
+
+        processed_frames = 0
+        progress_interval = max(
+            1,
+            round(fps),
+        )
+
+        print()
+        print("=" * 60)
+        print("REMOVE VIDEO BACKGROUND")
+        print("=" * 60)
+        print(f"Input  : {source_path}")
+        print(f"Output : {output_path}")
+        print()
+
+        while True:
+            success, frame = capture.read()
+
+            if not success or frame is None:
+                break
+
+            result = service.process_frame(frame)
+            processed_frame = result.composite_over(
+                replacement_background
+            )
+
+            writer.write(processed_frame)
+            processed_frames += 1
+
+            if (
+                processed_frames == 1
+                or processed_frames % progress_interval == 0
+            ):
+                if frame_count > 0:
+                    percentage = min(
+                        100.0,
+                        processed_frames
+                        / frame_count
+                        * 100.0,
+                    )
+                    print(
+                        f"Processed {processed_frames}/"
+                        f"{frame_count} frames "
+                        f"({percentage:.1f}%)"
+                    )
+                else:
+                    print(
+                        f"Processed {processed_frames} frames"
+                    )
+
+        if processed_frames == 0:
+            raise RuntimeError(
+                "No video frames were processed."
+            )
+
+    except Exception as error:
+        print()
+        print(
+            "Background removal failed: "
+            f"{error}"
+        )
+        return
+    finally:
+        capture.release()
+
+        if writer is not None:
+            writer.release()
+
+    audio_was_added = remux_original_audio(
+        silent_video=silent_output_path,
+        source_video=source_path,
+        output_video=output_path,
+    )
+
+    if audio_was_added:
+        silent_output_path.unlink(
+            missing_ok=True,
+        )
+    else:
+        if output_path.exists():
+            output_path.unlink()
+
+        silent_output_path.replace(output_path)
+
+    print()
+    print("=" * 60)
+    print("BACKGROUND REMOVAL COMPLETE")
+    print("=" * 60)
+    print(f"Output : {output_path}")
+    print(
+        "Audio  : "
+        + (
+            "Original audio preserved"
+            if audio_was_added
+            else "No audio copied because FFmpeg was unavailable"
+        )
+    )
+
 
 
 def select_normal_mode_files() -> SelectedRecordings | None:
@@ -303,6 +612,7 @@ def confirm_facecam_mode_files(
         print("Please enter a number from 1 to 5.")
 
 
+
 def display_main_menu() -> str:
     """Display the main processing-mode menu."""
 
@@ -319,7 +629,13 @@ def display_main_menu() -> str:
     print("2. Facecam Mode")
     print("   Combined + Gameplay + Facecam")
     print()
-    print("3. Exit")
+    print("3. Remove Video Background")
+    print("   Select a video using a file dialog")
+    print()
+    print("4. Exit")
+    print()
+    print("5. Create Ranking Video")
+    print("   Select multiple clips and assign ranks")
     print()
     print("-" * 60)
 
@@ -482,6 +798,7 @@ def print_pipeline_result(
         )
 
 
+
 def main() -> None:
     """Run the PressStartAI main menu."""
 
@@ -513,10 +830,18 @@ def main() -> None:
             continue
 
         if choice == "3":
+            remove_video_background()
+            continue
+
+        if choice == "4":
             print("PressStartAI closed.")
             return
 
-        print("Please enter 1, 2, or 3.")
+        if choice == "5":
+            create_ranking_video_from_dialogs()
+            continue
+
+        print("Please enter 1, 2, 3, 4, or 5.")
 
 
 if __name__ == "__main__":

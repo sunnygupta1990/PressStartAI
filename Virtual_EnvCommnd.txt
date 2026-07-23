@@ -1,2 +1,5 @@
 cd /d "C:\AI Projects\PressStartAI"
 .venv\Scripts\activate.bat
+
+
+python -m src.cli

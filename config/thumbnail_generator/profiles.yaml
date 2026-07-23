@@ -1,0 +1,72 @@
+version: 1
+
+defaults:
+  output_width: 1280
+  output_height: 720
+  thumbnail_count: 5
+  branding_mode: controlled_variation
+  internet_research: true
+  generate_youtube_package: true
+
+profiles:
+  press_start_with_sunny:
+    channel_name: "Press Start with Sunny"
+    target_audience: "Hindi and Hinglish gaming viewers"
+    preferred_language: "Hinglish"
+
+    brand_colors:
+      - "#FFB000"
+      - "#111111"
+      - "#FFFFFF"
+
+    logo:
+      enabled: false
+      path: "assets/thumbnail_channels/press_start_with_sunny/logo.png"
+      position: "top_right"
+
+    creator_photos_folder: "assets/thumbnail_channels/press_start_with_sunny/creator_photos"
+
+    style:
+      face_prominence: "high"
+      contrast: "high"
+      caption_length: "adaptive"
+      caption_position: "adaptive"
+      use_glow: true
+      use_outline: true
+
+    ai_face_generation:
+      enabled: true
+      permission_confirmed: true
+      preferred_real_photo_count: 3
+      preferred_ai_photo_count: 2
+
+  the_clueless_gamerzz:
+    channel_name: "The Clueless Gamerzz"
+    target_audience: "English, Hindi, and Hinglish gaming viewers"
+    preferred_language: "Hinglish"
+
+    brand_colors:
+      - "#7C3AED"
+      - "#111111"
+      - "#FFFFFF"
+
+    logo:
+      enabled: false
+      path: "assets/thumbnail_channels/the_clueless_gamerzz/logo.png"
+      position: "top_right"
+
+    creator_photos_folder: "assets/thumbnail_channels/the_clueless_gamerzz/creator_photos"
+
+    style:
+      face_prominence: "high"
+      contrast: "high"
+      caption_length: "adaptive"
+      caption_position: "adaptive"
+      use_glow: true
+      use_outline: true
+
+    ai_face_generation:
+      enabled: true
+      permission_confirmed: true
+      preferred_real_photo_count: 3
+      preferred_ai_photo_count: 2
