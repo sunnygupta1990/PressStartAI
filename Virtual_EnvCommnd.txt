@@ -3,3 +3,5 @@ cd /d "C:\AI Projects\PressStartAI"
 
 
 python -m src.cli
+
+ollama serve

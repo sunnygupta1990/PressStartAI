@@ -15,9 +15,9 @@ video:
   bitrate: 8M
 
 shorts:
-  minimum_duration: 50
-  preferred_duration: 75
-  maximum_duration: 150
+  minimum_duration: 10
+  preferred_duration: 15
+  maximum_duration: 20
 
 layout:
   face_height_percent: 40

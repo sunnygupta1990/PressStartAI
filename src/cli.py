@@ -552,7 +552,7 @@ def confirm_facecam_mode_files(
         print("1. Replace Normal Recording")
         print("2. Replace Gameplay Recording")
         print("3. Replace Facecam Recording")
-        print("4. Start Processing")
+        print("4. Start Processing Make sure to run Ollama serve in a different CMD before start")
         print("5. Return to Main Menu")
         print("-" * 60)
 

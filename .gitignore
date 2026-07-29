@@ -44,3 +44,7 @@ opencv_build.txt
 
 # Python cache
 *.egg-info/
+
+# Always include application source code
+!src/
+!src/**
