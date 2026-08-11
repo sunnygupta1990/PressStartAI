@@ -1,8 +1,11 @@
 # src/services/short_metadata_generator.py
 
+from src.core.config import Config
 import json
+import shutil
 import re
 import time
+import http.client
 import urllib.error
 import urllib.request
 
@@ -16,8 +19,6 @@ class ShortMetadataGenerator:
 
     MODEL_NAME = "gemma3:4b"
 
-    OLLAMA_API_URL = "http://localhost:11434/api/generate"
-    REQUEST_TIMEOUT_SECONDS = 900
     RETRY_DELAY_SECONDS = 5
     KEEP_ALIVE = "30m"
 
@@ -32,10 +33,13 @@ class ShortMetadataGenerator:
         r"\u0D00-\u0D7F]"
     )
 
-    MAXIMUM_ATTEMPTS = 3
+    MAXIMUM_ATTEMPTS = 5
 
     def __init__(self) -> None:
         self.text_cleaner = AITextCleaner()
+        config = Config()
+        self.model_name = config.get("ai", "llm_model")
+        self.ollama_executable = self._find_ollama_executable()
 
     def generate(
         self,
@@ -52,11 +56,7 @@ class ShortMetadataGenerator:
                 attempt=attempt,
             )
 
-            response_text = self._generate(
-                prompt
-            )
-
-            data = self._parse_response(
+            response_text, data = self._generate_with_cli(
                 response_text
             )
 
@@ -72,82 +72,89 @@ class ShortMetadataGenerator:
             highlight
         )
 
-    def _generate(
+    def _generate_with_cli(
         self,
         prompt: str,
-    ) -> str:
-        """Generate metadata through Ollama's persistent local API."""
-
-        request_data = {
-            "model": self.MODEL_NAME,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": self.KEEP_ALIVE,
-        }
-
-        request_body = json.dumps(
-            request_data
-        ).encode("utf-8")
-
+    ) -> tuple[str, dict[str, object]]:
+        """Generate metadata using the Ollama CLI."""
         last_error: Exception | None = None
-
+        
         for attempt in range(
             1,
             self.MAXIMUM_ATTEMPTS + 1,
         ):
-            request = urllib.request.Request(
-                self.OLLAMA_API_URL,
-                data=request_body,
-                headers={
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-
             try:
-                with urllib.request.urlopen(
-                    request,
-                    timeout=self.REQUEST_TIMEOUT_SECONDS,
-                ) as response:
-                    response_data = json.loads(
-                        response.read().decode("utf-8")
-                    )
-
-                return str(
-                    response_data.get(
-                        "response",
-                        "",
-                    )
-                )
-
-            except urllib.error.HTTPError as error:
-                error_body = error.read().decode(
-                    "utf-8",
+                process = subprocess.run(
+                    [self.ollama_executable, "run", self.model_name],
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
                     errors="replace",
+                    check=True,
+                    timeout=900,
                 )
-
+                response_text = process.stdout
+                data = self._parse_response(response_text)
+                return response_text, data
+            except FileNotFoundError as error:
                 raise RuntimeError(
-                    f"Ollama HTTP error "
-                    f"{error.code}: {error_body}"
+                    "Ollama executable not found. "
+                    "Ensure it is installed and in the system PATH."
                 ) from error
-
+            except subprocess.CalledProcessError as error:
+                last_error = error
+                print(f"Ollama process error: {error.stderr}")
+            except subprocess.TimeoutExpired as error:
+                last_error = error
+                print("Ollama process timed out.")
             except (
                 TimeoutError,
                 urllib.error.URLError,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError
             ) as error:
                 last_error = error
 
                 if attempt < self.MAXIMUM_ATTEMPTS:
-                    time.sleep(
-                        self.RETRY_DELAY_SECONDS
+                    delay = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+                    print(
+                        f"[AI RETRY] {type(error).__name__}: {error} "
+                        f"| retry {attempt + 1}/{self.MAXIMUM_ATTEMPTS} "
+                        f"in {delay}s"
                     )
+                    time.sleep(delay)
+
+        return "", {}
+
+    def _find_ollama_executable(self) -> str:
+        """Find the path to the Ollama executable."""
+        # 1. Check system PATH
+        ollama_path = shutil.which("ollama")
+        if ollama_path:
+            return ollama_path
+
+        # 2. Check default Windows installation location
+        program_files = Path(os.environ.get("ProgramFiles", "C:/Program Files"))
+        default_path = program_files / "Ollama" / "ollama.exe"
+        if default_path.is_file():
+            return str(default_path)
+
+        # 3. Check user-specific AppData location (from original code)
+        appdata = Path(os.environ.get("LOCALAPPDATA", ""))
+        if appdata:
+            user_path = appdata / "Programs" / "Ollama" / "ollama.exe"
+            if user_path.is_file():
+                return str(user_path)
 
         raise RuntimeError(
-            "Ollama metadata generation failed after "
-            f"{self.MAXIMUM_ATTEMPTS} attempts: "
-            f"{last_error}"
-        ) from last_error
-
+            "Ollama executable not found. Please ensure Ollama is installed "
+            "and its location is in the system's PATH environment variable, "
+            "or it is in the default installation directory."
+        )
+        
     def _build_metadata(
         self,
         highlight: FinalHighlight,
@@ -377,7 +384,7 @@ Return ONLY valid JSON using this exact structure:
 """.strip()
 
     @classmethod
-    def _parse_response(
+    def _parse_response( # type: ignore
         cls,
         response_text: str,
     ) -> dict[str, object]:
@@ -456,23 +463,4 @@ Return ONLY valid JSON using this exact structure:
                 repaired.append(
                     character
                 )
-                inside_string = not inside_string
-                continue
-
-            if (
-                inside_string
-                and character in ("\r", "\n")
-            ):
-                if (
-                    repaired
-                    and repaired[-1] != " "
-                ):
-                    repaired.append(" ")
-
-                continue
-
-            repaired.append(
-                character
-            )
-
-        return "".join(repaired)
+                inside_string = not inside_str

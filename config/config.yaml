@@ -28,6 +28,68 @@ layout:
   background_blur_strength: 25
 
 ai:
-  whisper_model: medium
-  vision_model: qwen2.5-vl
-  llm_model: gemma3
+  asr_model: "Qwen/Qwen3-ASR-0.6B"
+  vision_model: "gemma3:4b"
+  llm_model: "gemma3:4b"
+# These switches are shared by Option 1 (Normal Mode) and Option 2 (Facecam Mode).
+
+shorts_features:
+  # Applies to Options 1 and 2.
+  # Purpose: burns transcript text into the final video.
+  # Quality impact: none on highlight selection; presentation only.
+  # Performance: false avoids subtitle generation and an extra caption render.
+  captions_enabled: false
+
+  # Applies to Options 1 and 2.
+  # Purpose: converts speech to text for commentary-aware highlight selection.
+  # Quality impact: false can reduce quality for jokes, reactions, and spoken events.
+  # Performance: this is one of the most expensive stages.
+  transcription_enabled: true
+
+  # Applies to Options 1 and 2.
+  # Purpose: lets AI judge spoken commentary.
+  # Quality impact: false can reduce quality for commentary-heavy recordings.
+  # Requires transcription_enabled: true.
+  commentary_ai_enabled: true
+
+  # Applies to Options 1 and 2.
+  # Purpose: lets AI inspect representative video frames.
+  # Quality impact: false can reduce visual highlight-selection quality.
+  visual_ai_enabled: true
+
+  # Applies to Options 1 and 2.
+  # Purpose: combines commentary and visual AI into the final ranking.
+  # Quality impact: false uses deterministic score fusion instead.
+  # Requires commentary_ai_enabled and visual_ai_enabled to be true.
+  fusion_ai_enabled: true
+
+  # Applies to Options 1 and 2.
+  # Purpose: generates title, hook, description, hashtags, and thumbnail prompt.
+  # Quality impact: none on highlight selection or rendered video quality.
+  # Performance: false removes one metadata AI request per Short.
+  metadata_enabled: false
+
+  # Applies to Options 1 and 2.
+  # Purpose: exports separate raw clips in addition to final Shorts.
+  # Quality impact: none on final Short quality.
+  # Performance: false reduces duplicate disk I/O.
+  raw_highlight_export_enabled: false
+
+  # Applies to Options 1 and 2.
+  # Purpose: retains proxy, transcript, frame, and analysis artifacts.
+  # Quality impact: none; true is better for debugging.
+  # Performance: negligible; mainly affects disk usage.
+  keep_intermediate_files: true
+
+cache:
+  directory: "cache/pressstartai"
+  maximum_free_space_fraction: 0.25
+  minimum_free_space_reserve_fraction: 0.15
+
+performance:
+  enabled: true
+  target_cpu_percent: 85
+  target_ram_percent: 70
+  high_ram_percent: 82
+  cpu_reserve_cores: 1
+  maximum_workers: 8

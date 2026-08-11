@@ -1,5 +1,7 @@
 import json
 import time
+from src.core.config import Config
+import http.client
 import urllib.error
 import urllib.request
 
@@ -11,16 +13,18 @@ from src.models.visual_reasoning import VisualReasoning
 class HighlightFusionReasoner:
     """Fuse commentary and visual reasoning into one final decision."""
 
-    MODEL_NAME = "gemma3:4b"
-
     OLLAMA_API_URL = (
         "http://localhost:11434/api/generate"
     )
 
     REQUEST_TIMEOUT_SECONDS = 900
-    MAXIMUM_ATTEMPTS = 3
+    MAXIMUM_ATTEMPTS = 5
     RETRY_DELAY_SECONDS = 5
     KEEP_ALIVE = "30m"
+
+    def __init__(self) -> None:
+        config = Config()
+        self.model_name = config.get("ai", "llm_model")
 
     def reason(
         self,
@@ -33,7 +37,7 @@ class HighlightFusionReasoner:
         )
 
         request_data = {
-            "model": self.MODEL_NAME,
+            "model": self.model_name,
             "prompt": prompt,
             "stream": False,
             "format": "json",
@@ -151,13 +155,21 @@ class HighlightFusionReasoner:
             except (
                 TimeoutError,
                 urllib.error.URLError,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
             ) as error:
                 last_error = error
 
                 if attempt < self.MAXIMUM_ATTEMPTS:
-                    time.sleep(
-                        self.RETRY_DELAY_SECONDS
+                    delay = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+                    print(
+                        f"[AI RETRY] {type(error).__name__}: {error} "
+                        f"| retry {attempt + 1}/{self.MAXIMUM_ATTEMPTS} "
+                        f"in {delay}s"
                     )
+                    time.sleep(delay)
 
         raise RuntimeError(
             "Ollama fusion reasoning failed after "
@@ -295,10 +307,4 @@ Use this exact structure:
     ) -> float:
         try:
             confidence = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-
-        return max(
-            0.0,
-            min(1.0, confidence),
-        )
+        except (TypeError

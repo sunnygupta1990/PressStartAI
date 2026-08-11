@@ -1,5 +1,7 @@
 import base64
 import json
+import time
+import http.client
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -18,6 +20,9 @@ class VisualHighlightReasoner:
     )
 
     KEEP_ALIVE = "30m"
+    REQUEST_TIMEOUT_SECONDS = 300
+    MAXIMUM_ATTEMPTS = 5
+    RETRY_DELAY_SECONDS = 5
 
     def warm_up(self) -> None:
         request_data = {
@@ -117,51 +122,63 @@ class VisualHighlightReasoner:
             request_data
         ).encode("utf-8")
 
-        request = urllib.request.Request(
-            self.OLLAMA_API_URL,
-            data=request_body,
-            headers={
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
+        last_error: Exception | None = None
 
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=300,
-            ) as response:
-                response_text = (
-                    response.read().decode("utf-8")
-                )
-
-        except urllib.error.HTTPError as error:
-            error_body = error.read().decode(
-                "utf-8",
-                errors="replace",
+        for attempt in range(1, self.MAXIMUM_ATTEMPTS + 1):
+            request = urllib.request.Request(
+                self.OLLAMA_API_URL,
+                data=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                method="POST",
             )
 
-            raise RuntimeError(
-                f"Ollama HTTP error "
-                f"{error.code}: {error_body}"
-            ) from error
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.REQUEST_TIMEOUT_SECONDS,
+                ) as response:
+                    response_text = (
+                        response.read().decode("utf-8")
+                    )
+                return json.loads(response_text)
 
-        except urllib.error.URLError as error:
-            raise RuntimeError(
-                f"Unable to connect to Ollama: {error}"
-            ) from error
+            except urllib.error.HTTPError as error:
+                if error.code not in {408, 429, 500, 502, 503, 504}:
+                    error_body = error.read().decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                    raise RuntimeError(
+                        f"Ollama HTTP error "
+                        f"{error.code}: {error_body}"
+                    ) from error
+                last_error = error
 
-        response_data = json.loads(
-            response_text
-        )
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
+            ) as error:
+                last_error = error
 
-        if not isinstance(
-            response_data,
-            dict,
-        ):
-            return {}
+            if attempt < self.MAXIMUM_ATTEMPTS:
+                delay = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+                print(
+                    f"[AI RETRY] {type(last_error).__name__}: {last_error} "
+                    f"| retry {attempt + 1}/{self.MAXIMUM_ATTEMPTS} "
+                    f"in {delay}s"
+                )
+                time.sleep(delay)
 
-        return response_data
+        raise RuntimeError(
+            "Ollama visual reasoning failed after "
+            f"{self.MAXIMUM_ATTEMPTS} attempts: {last_error}"
+        ) from last_error
 
     @staticmethod
     def _build_prompt(

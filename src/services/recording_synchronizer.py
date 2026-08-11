@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import math
 from pathlib import Path
@@ -12,6 +13,7 @@ import numpy as np
 
 from src.models.recording_session import RecordingSession
 from src.models.recording_synchronization import RecordingSynchronization
+from src.services.resource_manager import ResourceManager
 
 
 class RecordingSynchronizationError(RuntimeError):
@@ -51,14 +53,38 @@ class RecordingSynchronizer:
         master_audio = synchronization_folder / "master.wav"
         gameplay_audio = synchronization_folder / "gameplay.wav"
 
-        self._extract_audio(
-            video_file=recording_session.recording_video,
-            output_file=master_audio,
+        workers = ResourceManager().workers(
+            task_name="Extracting synchronization audio",
+            item_count=2,
+            memory_per_worker_mb=160,
+            maximum_workers=2,
         )
-        self._extract_audio(
-            video_file=recording_session.gameplay_video or "",
-            output_file=gameplay_audio,
-        )
+        extraction_jobs = [
+            (recording_session.recording_video, master_audio),
+            (recording_session.gameplay_video or "", gameplay_audio),
+        ]
+
+        if workers == 1:
+            for source, target in extraction_jobs:
+                self._extract_audio(
+                    video_file=source,
+                    output_file=target,
+                )
+        else:
+            with ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="sync-audio",
+            ) as executor:
+                futures = [
+                    executor.submit(
+                        self._extract_audio,
+                        video_file=source,
+                        output_file=target,
+                    )
+                    for source, target in extraction_jobs
+                ]
+                for future in futures:
+                    future.result()
         master_envelope = self._load_envelope(master_audio)
         gameplay_envelope = self._load_envelope(gameplay_audio)
         gameplay_offset, gameplay_confidence = self._calculate_offset(

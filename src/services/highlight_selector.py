@@ -11,6 +11,7 @@ class HighlightSelector:
         self,
         minimum_score: float = 0.40,
         minimum_highlight_duration_seconds: float = 45.0,
+        preferred_highlight_duration_seconds: float | None = None,
         maximum_highlight_duration_seconds: float = 145.0,
     ) -> None:
         if not 0.0 <= minimum_score <= 1.0:
@@ -21,6 +22,29 @@ class HighlightSelector:
         if minimum_highlight_duration_seconds <= 0:
             raise ValueError(
                 "minimum_highlight_duration_seconds must be positive."
+            )
+
+        if preferred_highlight_duration_seconds is None:
+            preferred_highlight_duration_seconds = (
+                minimum_highlight_duration_seconds
+            )
+
+        if (
+            preferred_highlight_duration_seconds
+            < minimum_highlight_duration_seconds
+        ):
+            raise ValueError(
+                "preferred_highlight_duration_seconds must be greater "
+                "than or equal to minimum_highlight_duration_seconds."
+            )
+
+        if (
+            maximum_highlight_duration_seconds
+            < preferred_highlight_duration_seconds
+        ):
+            raise ValueError(
+                "maximum_highlight_duration_seconds must be greater "
+                "than or equal to preferred_highlight_duration_seconds."
             )
 
         if (
@@ -35,6 +59,9 @@ class HighlightSelector:
         self.minimum_score = minimum_score
         self.minimum_highlight_duration_seconds = (
             minimum_highlight_duration_seconds
+        )
+        self.preferred_highlight_duration_seconds = (
+            preferred_highlight_duration_seconds
         )
         self.maximum_highlight_duration_seconds = (
             maximum_highlight_duration_seconds
@@ -91,7 +118,7 @@ class HighlightSelector:
         scene_end_seconds: float,
         video_duration_seconds: float,
     ) -> tuple[float, float]:
-        """Build a valid 45–145 second window around one scene."""
+        """Build a valid configured-duration window around one scene."""
 
         scene_start = max(
             0.0,
@@ -113,9 +140,14 @@ class HighlightSelector:
             video_duration_seconds,
         )
 
+        scene_duration = scene_end - scene_start
+
         target_duration = max(
             self.minimum_highlight_duration_seconds,
-            scene_end - scene_start,
+            min(
+                scene_duration,
+                self.preferred_highlight_duration_seconds,
+            ),
         )
         target_duration = min(
             target_duration,

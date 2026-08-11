@@ -1,5 +1,18 @@
 # src/cli.py
 
+
+def _configure_runtime_threads() -> None:
+    """Give CPU libraries enough threads while reserving one core for the OS."""
+    import os
+
+    logical = max(1, int(os.cpu_count() or 1))
+    usable = max(1, logical - 1)
+    value = str(usable)
+    os.environ.setdefault("OMP_NUM_THREADS", value)
+    os.environ.setdefault("MKL_NUM_THREADS", value)
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", value)
+
+
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +26,9 @@ from src.models.pipeline_error import PipelineError
 from src.models.pipeline_progress import PipelineProgress
 from src.services.highlight_pipeline import HighlightPipeline
 from src.services.pipeline_run_path_builder import PipelineRunPathBuilder
+from src.services.checkpoint_cache import CheckpointCache
+from src.services.run_session_manager import RunSessionManager
+from src.core.config import Config
 from src.services.ranking_video_cli import (
     create_ranking_video_from_dialogs,
 )
@@ -613,6 +629,95 @@ def confirm_facecam_mode_files(
 
 
 
+
+def select_run_mode(
+    previous_run_available: bool,
+    reusable_cache_available: bool,
+) -> tuple[str, bool] | None:
+    """Select resume/fresh behavior using the existing numbered-menu style."""
+
+    while True:
+        print()
+        print("=" * 60)
+        print("RUN MODE")
+        print("=" * 60)
+        print()
+        print("1. Resume Previous Run")
+        print(
+            "   "
+            + (
+                "Continue from the last valid checkpoint."
+                if previous_run_available
+                else "No previous resumable run is available."
+            )
+        )
+        print()
+        print("2. Fresh Run")
+        print("   Create a new output run.")
+        print()
+        print("3. Return to Main Menu")
+        print()
+        print("-" * 60)
+
+        choice = input("Select an option: ").strip()
+
+        if choice == "1":
+            if previous_run_available:
+                return "resume", True
+            print("No previous resumable run is available.")
+            continue
+
+        if choice == "2":
+            reuse_cache = False
+            if reusable_cache_available:
+                while True:
+                    print()
+                    print("Reusable cache was found for these recordings.")
+                    print("1. Reuse valid cache")
+                    print("2. Rebuild everything for this run")
+                    cache_choice = input("Select an option: ").strip()
+                    if cache_choice == "1":
+                        reuse_cache = True
+                        break
+                    if cache_choice == "2":
+                        reuse_cache = False
+                        break
+                    print("Please enter 1 or 2.")
+            return "fresh", reuse_cache
+
+        if choice == "3":
+            return None
+
+        print("Please enter 1, 2, or 3.")
+
+
+def clear_all_cache_from_menu() -> None:
+    """Explicitly remove checkpoint/cache data without touching final outputs."""
+
+    cache_root = Path(Config().get("cache", "directory"))
+
+    print()
+    print("=" * 60)
+    print("CLEAR CACHE / CHECKPOINTS")
+    print("=" * 60)
+    print(f"Cache folder: {cache_root.resolve()}")
+    print()
+    print("Final output videos will NOT be deleted.")
+    print("This action removes reusable analysis and resume checkpoints.")
+    print()
+    print("1. Clear Cache")
+    print("2. Cancel")
+    print("-" * 60)
+
+    choice = input("Select an option: ").strip()
+    if choice != "1":
+        print("Cache cleanup cancelled.")
+        return
+
+    CheckpointCache.clear_all(cache_root)
+    print("Cache and checkpoints cleared.")
+
+
 def display_main_menu() -> str:
     """Display the main processing-mode menu."""
 
@@ -637,6 +742,9 @@ def display_main_menu() -> str:
     print("5. Create Ranking Video")
     print("   Select multiple clips and assign ranks")
     print()
+    print("6. Clear Cache / Checkpoints")
+    print("   Final output videos are preserved")
+    print()
     print("-" * 60)
 
     return input("Enter your choice: ").strip()
@@ -654,10 +762,46 @@ def run_pipeline(
         else "portrait"
     )
 
-    path_builder = PipelineRunPathBuilder()
+    config = Config()
+    cache_root = Path(config.get("cache", "directory"))
+    session_manager = RunSessionManager(cache_root)
+    session_key = session_manager.session_key(
+        normal_recording=selections.normal_recording,
+        gameplay_recording=selections.gameplay_recording,
+        facecam_recording=selections.facecam_recording,
+        layout_type=layout_type,
+    )
 
-    run_paths = path_builder.build(
-        video_file=selections.normal_recording,
+    cache_probe = CheckpointCache(
+        cache_root=cache_root,
+        session_key=session_key,
+        enabled=True,
+    )
+    previous_run = session_manager.previous_run(session_key)
+
+    run_mode = select_run_mode(
+        previous_run_available=previous_run is not None,
+        reusable_cache_available=cache_probe.has_any_cache(),
+    )
+    if run_mode is None:
+        return
+
+    mode, reuse_cache = run_mode
+
+    if mode == "resume":
+        assert previous_run is not None
+        run_paths = previous_run
+        reuse_cache = True
+    else:
+        run_paths = session_manager.new_run(
+            session_key=session_key,
+            video_file=selections.normal_recording,
+        )
+
+    checkpoint_cache = CheckpointCache(
+        cache_root=cache_root,
+        session_key=session_key,
+        enabled=reuse_cache or mode == "resume",
     )
 
     working_folder = (
@@ -681,6 +825,11 @@ def run_pipeline(
     print("PRESSSTARTAI")
     print("=" * 60)
     print(f"Run ID            : {run_paths.run_id}")
+    print(f"Run Mode          : {mode.title()}")
+    print(
+        "Reusable Cache    : "
+        + ("Enabled" if checkpoint_cache.enabled else "Bypassed")
+    )
     print(f"Normal Recording  : {selections.normal_recording}")
 
     if selections.gameplay_recording:
@@ -711,6 +860,7 @@ def run_pipeline(
             gameplay_video=selections.gameplay_recording,
             facecam_video=selections.facecam_recording,
             progress_callback=print_progress,
+            checkpoint_cache=checkpoint_cache,
         )
     except PipelineExecutionError as error:
         pipeline_error = PipelineError(
@@ -800,6 +950,7 @@ def print_pipeline_result(
 
 
 def main() -> None:
+    _configure_runtime_threads()
     """Run the PressStartAI main menu."""
 
     arguments = parse_arguments()
@@ -841,7 +992,11 @@ def main() -> None:
             create_ranking_video_from_dialogs()
             continue
 
-        print("Please enter 1, 2, 3, 4, or 5.")
+        if choice == "6":
+            clear_all_cache_from_menu()
+            continue
+
+        print("Please enter 1, 2, 3, 4, 5, or 6.")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 import json
 import re
 import time
+import http.client
 import urllib.error
 import urllib.request
 
@@ -16,7 +17,7 @@ class HighlightReasoner:
     MODEL_NAME = "gemma3:4b"
     OLLAMA_API_URL = "http://localhost:11434/api/generate"
     REQUEST_TIMEOUT_SECONDS = 900
-    MAXIMUM_ATTEMPTS = 3
+    MAXIMUM_ATTEMPTS = 5
     RETRY_DELAY_SECONDS = 5
     KEEP_ALIVE = "30m"
 
@@ -128,13 +129,21 @@ class HighlightReasoner:
             except (
                 TimeoutError,
                 urllib.error.URLError,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                ConnectionAbortedError,
+                BrokenPipeError,
             ) as error:
                 last_error = error
 
                 if attempt < self.MAXIMUM_ATTEMPTS:
-                    time.sleep(
-                        self.RETRY_DELAY_SECONDS
+                    delay = self.RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
+                    print(
+                        f"[AI RETRY] {type(error).__name__}: {error} "
+                        f"| retry {attempt + 1}/{self.MAXIMUM_ATTEMPTS} "
+                        f"in {delay}s"
                     )
+                    time.sleep(delay)
 
         raise RuntimeError(
             "Ollama commentary reasoning failed after "

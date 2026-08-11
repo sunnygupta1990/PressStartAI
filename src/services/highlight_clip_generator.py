@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 
 from src.models.generated_highlight import GeneratedHighlight
 from src.models.highlight_candidate import HighlightCandidate
+from src.services.resource_manager import ResourceManager
 
 
 class HighlightClipGenerator:
@@ -40,9 +42,25 @@ class HighlightClipGenerator:
         for old_file in output_path.glob("highlight_*.mp4"):
             old_file.unlink()
 
-        generated_highlights: list[GeneratedHighlight] = []
+        if not candidates:
+            return []
 
-        for index, candidate in enumerate(candidates, start=1):
+        resource_manager = ResourceManager()
+        workers = resource_manager.workers(
+            task_name=(
+                "Generating analysis clips"
+                if analysis_mode
+                else "Extracting source clips"
+            ),
+            item_count=len(candidates),
+            memory_per_worker_mb=(450 if analysis_mode else 180),
+            maximum_workers=(4 if analysis_mode else 6),
+        )
+
+        def generate_one(
+            indexed_candidate: tuple[int, HighlightCandidate],
+        ) -> GeneratedHighlight:
+            index, candidate = indexed_candidate
             output_file = output_path / f"highlight_{index:03d}.mp4"
 
             if analysis_mode:
@@ -58,14 +76,20 @@ class HighlightClipGenerator:
                     output_file=output_file,
                 )
 
-            generated_highlights.append(
-                GeneratedHighlight(
-                    file_path=str(output_file),
-                    candidate=candidate,
-                )
+            return GeneratedHighlight(
+                file_path=str(output_file),
+                candidate=candidate,
             )
 
-        return generated_highlights
+        indexed = list(enumerate(candidates, start=1))
+        if workers == 1:
+            return [generate_one(item) for item in indexed]
+
+        with ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="highlight-clip",
+        ) as executor:
+            return list(executor.map(generate_one, indexed))
 
     @staticmethod
     def _generate_analysis_clip(
