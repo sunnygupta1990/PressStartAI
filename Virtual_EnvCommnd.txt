@@ -5,3 +5,9 @@ cd /d "C:\AI Projects\PressStartAI"
 python -m src.cli
 
 ollama serve
+
+
+
+python -c "from src.gameplay_segmentation.video import VideoTools; print(VideoTools().probe(r'C:\Users\SunGupta\Videos\Recording 17 sept\2026-09-17 18-50-24.mp4'))"
+
+python -m src.gameplay_segmentation.cli "C:\Users\SunGupta\Videos\Recording 17 sept\2026-09-17 18-50-24.mp4" --ai-workers 2 --cpu-workers 12 --max-ai-windows 10

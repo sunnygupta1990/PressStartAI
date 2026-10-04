@@ -11,6 +11,9 @@ __pycache__/
 logs/
 *.log
 
+# Runtime cache / generated artifacts
+cache/
+
 # Output
 output/
 
@@ -45,6 +48,8 @@ opencv_build.txt
 # Python cache
 *.egg-info/
 
-# Always include application source code
-!src/
-!src/**
+# Never re-include generated Python cache
+src/**/__pycache__/
+src/**/*.pyc
+src/**/*.pyo
+src/**/*.pyd
